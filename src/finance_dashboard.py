@@ -251,7 +251,7 @@ def __(
     mo.Html(header_html + f"""
     <div class="terminal">
       {kpi_row("Savings rate", [
-          _rate_tile("take_home", "Of take-home pay", "logged contributions"),
+          _rate_tile("take_home", "Of take-home pay", "Total Savings on the Budget tab"),
           _rate_tile("total", "Of gross income", "contributions + 401(k) + match"),
       ])}
       {kpi_row("Income &amp; savings", [
