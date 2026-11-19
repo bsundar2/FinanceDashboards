@@ -28,6 +28,9 @@ COOKIE_NAME = "dashboard_session"
 # Log in again daily; checked on the server too, not only by the browser
 COOKIE_MAX_AGE = 24 * 60 * 60
 LOGIN_PATH = "/login"
+# Pinged by the open pages (src/heartbeat_head.html) so Render keeps the service
+# running; needs the login cookie like everything else
+HEARTBEAT_PATH = "/heartbeat"
 # Slows down guessing; a person barely notices it on a typo
 FAILED_LOGIN_DELAY_SECONDS = 1.0
 
@@ -79,6 +82,9 @@ class PasswordGate:
             await self._login(scope, receive, send)
             return
         if self._authorized(scope):
+            if scope["type"] == "http" and scope["path"] == HEARTBEAT_PATH:
+                await self._respond(send, 204)
+                return
             await self.app(scope, receive, send)
             return
         if scope["type"] == "websocket":

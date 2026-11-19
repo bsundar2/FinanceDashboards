@@ -63,6 +63,13 @@ class TestPasswordGate:
         assert client.get("/net-worth/").text == "net worth"
         assert client.get("/").text == "finance"
 
+    def test_heartbeat_needs_the_cookie_and_is_not_passed_on(self, client):
+        assert client.get("/heartbeat", follow_redirects=False).status_code == 303
+        _log_in(client)
+        response = client.get("/heartbeat")
+        assert response.status_code == 204
+        assert response.content == b""
+
     def test_login_lasts_a_day(self, client):
         assert "Max-Age=86400" in _log_in(client).headers["set-cookie"]
 
@@ -115,3 +122,13 @@ class TestCreateApp:
         assert (
             client.get("/net-worth/").headers["location"] == "/login?next=/net-worth/"
         )
+
+
+def test_both_notebooks_load_the_heartbeat_script():
+    from pathlib import Path
+
+    src = Path(ds.__file__).parent
+    head = (src / "heartbeat_head.html").read_text()
+    assert ds.HEARTBEAT_PATH in head
+    for notebook in ("finance_dashboard.py", "net_worth_dashboard.py"):
+        assert 'html_head_file="heartbeat_head.html"' in (src / notebook).read_text()

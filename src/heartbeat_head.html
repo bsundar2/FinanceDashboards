@@ -1,0 +1,10 @@
+<!-- Added to both notebooks' <head> (html_head_file). While a page is open it
+     pings the server every 4 minutes. Render's free plan stops a service that
+     gets no inbound request for 15 minutes, and an open websocket doesn't
+     seem to count, which kills the kernel behind a page left on its own.
+     Standalone `marimo run` has no /heartbeat route; the 404 is harmless. -->
+<script>
+  setInterval(function () {
+    fetch("/heartbeat", { credentials: "same-origin", cache: "no-store" }).catch(function () {});
+  }, 4 * 60 * 1000);
+</script>
