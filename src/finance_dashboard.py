@@ -188,7 +188,7 @@ def __(mo, money, monthly_spend, net_worth, pf, savings, spreadsheet_name, html,
         return f"""<div class="t-kpi {cls}"><div class="t-kpi-label">{label}</div>
         <div class="t-kpi-value {cls}">{value}</div><div class="t-kpi-sub">{sub}</div></div>"""
 
-    mo.Html(f"""
+    header_html = f"""
     <div class="terminal">
       <div class="t-header">
         <div>
@@ -202,13 +202,14 @@ def __(mo, money, monthly_spend, net_worth, pf, savings, spreadsheet_name, html,
         {_kpi("Net worth", money(_nw.iloc[-1]), f"as of {_nw.index[-1].strftime('%b')} (live)", "pos")}
         {_kpi("Net worth change", money(_nw_change, signed=True), f"since {_nw.index[0].strftime('%b')} opening", "pos" if _nw_change >= 0 else "neg")}
       </div>
-    </div>""")
-    return
+    </div>"""
+    return (header_html,)
 
 
 @app.cell
 def __(
     budget_items,
+    header_html,
     kpi_row,
     kpi_tile,
     mo,
@@ -251,7 +252,8 @@ def __(
         _vs = f" · plan {_target:.1%}" if _target is not None else ""
         return stat_tile(label, f"{_rates[key]:.1%}", sub + _vs, _cls)
 
-    mo.Html(f"""
+    # One output with the header above, so there's no cell gap between them
+    mo.Html(header_html + f"""
     <div class="terminal">
       {kpi_row("Savings rate · this year", [
           _rate_tile("take_home", "target_take_home", "Of take-home pay", "logged contributions"),
