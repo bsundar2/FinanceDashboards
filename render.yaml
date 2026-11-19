@@ -2,7 +2,7 @@ services:
   # The Yearly Overview at /, and its Net Worth page at /net-worth, behind one
   # password (see src/dashboard_server.py)
   - type: web
-    name: finance-dashboard
+    name: finance-dashboards
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
