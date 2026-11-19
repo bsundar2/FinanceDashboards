@@ -782,14 +782,19 @@ class TestSavingsRates:
         "take_home": (60000, 70000),
         "401k": (10000, 12000),
         "401k_match": (2000, 2400),
-        "total_savings": (0, 21000),
+        "total_savings": (15000, 21000),
     }
 
     def test_shares_of_take_home_and_gross(self):
         rates = pf.savings_rates(self.ITEMS, saved=12000)
 
-        assert rates["take_home"] == 0.2
-        assert rates["total"] == (12000 + 12000) / 100000
+        assert rates["take_home"] == 0.25
+        assert rates["total"] == (15000 + 12000) / 100000
+
+    def test_falls_back_to_logged_contributions_without_a_total_savings_row(self):
+        items = {k: v for k, v in self.ITEMS.items() if k != "total_savings"}
+
+        assert pf.savings_rates(items, saved=12000)["take_home"] == 0.2
 
     def test_leaves_out_what_the_sheet_lacks(self):
         assert pf.savings_rates({}, saved=100) == {}
