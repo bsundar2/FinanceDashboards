@@ -255,17 +255,17 @@ def __(
     # One output with the header above, so there's no cell gap between them
     mo.Html(header_html + f"""
     <div class="terminal">
-      {kpi_row("Savings rate · this year", [
+      {kpi_row("Savings rate", [
           _rate_tile("take_home", "target_take_home", "Of take-home pay", "logged contributions"),
           _rate_tile("total", "target_total", "Of gross income", "contributions + 401(k) + match"),
       ])}
-      {kpi_row("Income &amp; savings · this year", [
+      {kpi_row("Income &amp; savings", [
           _budget_tile("gross_income", "Gross income"),
           _budget_tile("take_home", "Take-home pay"),
           _budget_tile("401k", "401(k) contributions", f"+ {money(_match)} company match" if _match else None),
           _budget_tile("total_savings", "Total savings"),
       ])}
-      {kpi_row("Investment income · this year", [
+      {kpi_row("Investment income", [
           _logged("dividends", "Dividends"),
           _logged("interest", "Interest"),
           _logged("stock_gain", "Realized gain/loss"),
@@ -302,7 +302,7 @@ def __(PALETTE, ShareBar, by_group, mo, money, month_labels, stacked_bars_svg):
     )
     mo.Html(f"""
     <div class="terminal">
-      <div class="t-section">1 · Spending by month (your share of each Splitwise expense)</div>
+      <div class="t-section">1 · Spending by month (your share)</div>
       <div class="t-chart">{group_bar}</div>
       <div class="t-chart">{_chart}</div>
       <div class="t-note">Click a group, in the bar or its chip, to see its sub-categories; click it again to close them.</div>
@@ -366,7 +366,7 @@ def __(
     _total = by_group[_group].sum()
     mo.Html(f"""
     <div class="terminal">
-      <div class="t-section">{html.escape(_group)} · {money(_total)} this year · {money(_total / len(by_group))} / month</div>
+      <div class="t-section">{html.escape(_group)} · {money(_total)} · {money(_total / len(by_group))} / month</div>
       {legend([html.escape(c) for c in _df.columns] + [f"{html.escape(_group)} total"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       {fold(f"{len(_rows)} sub-categories", f"{money(_total)} excl. one-offs", table(["Sub-category", "Spent (excl. one-offs)", "Per month", "Spent (all)", "Budget to date", "Over / under"], _rows))}
@@ -440,7 +440,7 @@ def __(
       </div>
       <div class="t-note">Spent includes one-offs. Budget to date is each category's monthly budget from the Monthly
       Expenses tab times the months elapsed, with the current month prorated by day; the sheet's Variance column
-      compares against the whole year's budget instead. Splitwise bills dated after today aren't counted yet.</div>
+      compares against the whole year's budget instead. Bills dated after today aren't counted yet.</div>
     </div>""")
     return
 
@@ -736,7 +736,7 @@ def __(
       ])}
       {legend([html.escape(n) for n in _names], _colors)}
       <div class="t-chart">{stacked_bars_svg(month_labels, {html.escape(n): list(_by_month[n]) for n in _names}, _colors, line=list(_by_month.sum(axis=1)))}</div>
-      {fold(f"{len(_payer_rows)} biggest payers", f"{money(_payers['total'].sum())} this year", table(["Security", "Received this year", "Payments"], _payer_rows), "pos")}
+      {fold(f"{len(_payer_rows)} biggest payers", f"{money(_payers['total'].sum())}", table(["Security", "Received", "Payments"], _payer_rows), "pos")}
       <div class="t-note">Wells Fargo and Fidelity dividends the pipeline has recorded; the ledger only grows from when it
       started, so a yearly pace over less than a year of history is an estimate. Securities are shown by ticker where the
       ledger has one.</div>
