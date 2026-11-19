@@ -42,9 +42,9 @@ A menu bar at the top of each page links them, plus FinanceToSheets's Swing Trad
 
 ### Hosting on Render (one-time)
 
-`render.yaml` defines the `finance-dashboard` service:
+`render.yaml` defines the `finance-dashboards` service:
 1. Share the budget sheet with the service account (see Setup).
-2. In Render, sync the Blueprint, then on the `finance-dashboard` service:
+2. In Render, sync the Blueprint, then on the `finance-dashboards` service:
    - **Environment → Secret Files**: add `gsheets_authentication.json` with the key file's contents. `GSHEETS_AUTH_FILE` already points at `/etc/secrets/gsheets_authentication.json`.
    - **Environment**: set `FINANCE_TOKEN` to a long random password (e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`) and keep it in your password manager. Set `PNL_DASHBOARD_URL` and `SPENDING_DASHBOARD_URL` to the other apps' URLs.
 3. Next year, change `BUDGET_SPREADSHEET_NAME` to the new spreadsheet's name, and share that one too.
