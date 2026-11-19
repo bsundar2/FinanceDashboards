@@ -16,6 +16,7 @@ from src.constants.gsheets import (
     BUDGET_SPREADSHEET_NAME_ENV_VAR,
     DEFAULT_BUDGET_SPREADSHEET_NAME,
     DEFAULT_HOLDINGS_SPREADSHEET_NAME,
+    DIVIDENDS_LEDGER_SHEET_NAME,
     HOLDINGS_DUMP_SHEET_NAME,
     HOLDINGS_SPREADSHEET_NAME_ENV_VAR,
 )
@@ -418,14 +419,52 @@ def parse_net_worth(values: list[list], months: pd.PeriodIndex) -> pd.DataFrame:
     return df
 
 
-def net_worth_changes(net_worth: pd.DataFrame) -> pd.DataFrame:
+def net_worth_changes(
+    net_worth: pd.DataFrame,
+    debt: pd.Series | None = None,
+    retirement_total: float = 0.0,
+) -> pd.DataFrame:
     """Each month's change in net worth (from the second month on, since the
     first is the opening balance), split into what you put in (the
-    contributions logged that month) and everything else (markets, home
-    value, paying down debt)."""
+    contributions logged that month), debt paid down (debt is the total debt
+    balance by month, negative, from debt_balance(): it rising towards zero is
+    principal paid), your 401(k) contributions and match (retirement_total
+    for the period, split evenly, since the sheet only has the yearly figure)
+    and everything else (markets, home value, cash left over)."""
     change = net_worth[NET_WORTH].diff().iloc[1:]
     saved = net_worth[CONTRIBUTIONS].iloc[1:]
-    return pd.DataFrame({"change": change, "saved": saved, "market": change - saved})
+    paid_down = (
+        debt.diff().iloc[1:] if debt is not None else pd.Series(0.0, index=change.index)
+    )
+    retirement = pd.Series(
+        retirement_total / len(change) if len(change) else 0.0, index=change.index
+    )
+    return pd.DataFrame(
+        {
+            "change": change,
+            "saved": saved,
+            "debt": paid_down,
+            "retirement": retirement,
+            "market": change - saved - paid_down - retirement,
+        }
+    )
+
+
+def debt_balance(values: list[list], months: pd.PeriodIndex) -> pd.Series:
+    """Everything owed, by month, as a negative number: the Liabilities
+    subtotal plus any debt row sitting in another section (the mortgage,
+    which Real Estate's subtotal subtracts)."""
+    _, series, sections = _net_worth_sections(values, months)
+    total = pd.Series(0.0, index=months)
+    for component, rows, subtotal in sections:
+        if component == "Liabilities":
+            total += -pd.Series(series(subtotal), index=months).abs()
+            continue
+        for row in rows.values():
+            text = f"{_cell(row, 1)} {_cell(row, 2)}".lower()
+            if any(word in text for word in _DEBT_WORDS):
+                total += pd.Series(series(row), index=months)
+    return total
 
 
 def contribution_buckets(
@@ -575,14 +614,17 @@ CASH_AND_OTHER = "Cash & other"
 BALANCE_ONLY = "Balance (no holdings reported)"
 
 
+def _holdings_spreadsheet_name() -> str:
+    return os.environ.get(
+        HOLDINGS_SPREADSHEET_NAME_ENV_VAR, DEFAULT_HOLDINGS_SPREADSHEET_NAME
+    )
+
+
 def load_holdings() -> pd.DataFrame:
     """The SimpleFIN pipeline's holdings_dump tab (one row per security per
     account), from the spreadsheet named by HOLDINGS_SPREADSHEET_NAME
     (RH_Sheets by default)."""
-    spreadsheet_name = os.environ.get(
-        HOLDINGS_SPREADSHEET_NAME_ENV_VAR, DEFAULT_HOLDINGS_SPREADSHEET_NAME
-    )
-    return read_from_sheets(HOLDINGS_DUMP_SHEET_NAME, spreadsheet_name)
+    return read_from_sheets(HOLDINGS_DUMP_SHEET_NAME, _holdings_spreadsheet_name())
 
 
 def net_worth_accounts(values: list[list], months: pd.PeriodIndex) -> pd.DataFrame:
@@ -879,3 +921,232 @@ def allocation(
         else pd.DataFrame(columns=["category", "type", "value", "weight", "of_assets"])
     )
     return by_category.reset_index(drop=True), by_type
+
+
+# ── Savings rate ────────────────────────────────────────────────────────────
+
+
+def savings_rates(budget_items: dict, saved: float) -> dict[str, float]:
+    """The year's savings as a share of income, against the budget's own
+    plan. saved is the logged contributions to date.
+
+    take_home: saved / actual take-home pay.
+    total: (saved + 401(k) + company match) / actual gross income, the whole
+    share of pay that went into assets.
+    target_take_home, target_total: the same two from the Budget Yearly
+    column (its Total Savings, 401(k) and match over its take-home and gross).
+    A rate whose figures the sheet doesn't have is left out."""
+
+    def actual(key):
+        return budget_items.get(key, (0.0, 0.0))[0]
+
+    def planned(key):
+        return budget_items.get(key, (0.0, 0.0))[1]
+
+    retirement = actual("401k") + actual("401k_match")
+    planned_retirement = planned("401k") + planned("401k_match")
+    rates = {}
+    if actual("take_home"):
+        rates["take_home"] = saved / actual("take_home")
+    if actual("gross_income"):
+        rates["total"] = (saved + retirement) / actual("gross_income")
+    if planned("take_home") and planned("total_savings"):
+        rates["target_take_home"] = planned("total_savings") / planned("take_home")
+    if planned("gross_income") and planned("total_savings"):
+        rates["target_total"] = (
+            planned("total_savings") + planned_retirement
+        ) / planned("gross_income")
+    return rates
+
+
+# ── Category movers ─────────────────────────────────────────────────────────
+
+
+def category_movers(
+    expenses: pd.DataFrame, today: pd.Timestamp, baseline_months: int = 3
+) -> tuple[pd.DataFrame, pd.Period | None, int]:
+    """Spending by sub-category in the last complete month against its
+    average over the (up to baseline_months) months before it, the same
+    year: (table, that month, number of baseline months). The table has
+    latest, baseline, change and pct (change over baseline, NaN when the
+    baseline is zero), biggest change first. Empty when the year has fewer
+    than two complete months."""
+    latest = today.to_period("M") - 1
+    baseline = [
+        latest - i
+        for i in range(1, baseline_months + 1)
+        if (latest - i).year == latest.year
+    ]
+    if latest.year != today.year or not baseline:
+        return pd.DataFrame(columns=_MOVER_COLUMNS), None, 0
+    by_month = expenses.assign(month=expenses["date"].dt.to_period("M")).pivot_table(
+        index="category", columns="month", values="my_share", aggfunc="sum"
+    )
+    by_month = by_month.reindex(columns=[latest, *baseline]).fillna(0.0)
+    table = pd.DataFrame(
+        {"latest": by_month[latest], "baseline": by_month[baseline].mean(axis=1)}
+    )
+    return _with_change(table), latest, len(baseline)
+
+
+_MOVER_COLUMNS = ["category", "latest", "baseline", "change", "pct"]
+
+
+def _with_change(table: pd.DataFrame) -> pd.DataFrame:
+    """table's first two columns (new, old) with their change and pct, biggest
+    absolute change first, category as a column."""
+    new, old = table.columns[:2]
+    table = table.assign(change=table[new] - table[old])
+    table["pct"] = (table["change"] / table[old]).where(table[old] > 0)
+    table = table[(table[new] != 0) | (table[old] != 0)]
+    order = table["change"].abs().sort_values(ascending=False).index
+    return table.loc[order].rename_axis("category").reset_index()
+
+
+def load_previous_year_expenses(
+    spreadsheet_name: str, year: int, today: pd.Timestamp
+) -> pd.DataFrame | None:
+    """Last year's expenses up to the same day, from the previous year's
+    budget sheet (the name with its year swapped, "Budget - 2025"), or None
+    when the name has no year or that sheet can't be read (it must be shared
+    with the service account too)."""
+    if str(year) not in spreadsheet_name:
+        return None
+    name = spreadsheet_name.replace(str(year), str(year - 1))
+    try:
+        tabs = read_values_from_sheets(
+            [EXPENSE_LOG_TAB], name, (PARTNER_EXPENSE_LOG_TAB,)
+        )
+        return parse_expense_logs(tabs, year - 1, today - pd.DateOffset(years=1))
+    except Exception:  # optional: the page just leaves the comparison out
+        return None
+
+
+def year_over_year(this_year: pd.DataFrame, last_year: pd.DataFrame) -> pd.DataFrame:
+    """Spending by sub-category so far this year against the same stretch
+    last year (both already cut at the same day): this_year, last_year,
+    change and pct, biggest change first."""
+    table = pd.DataFrame(
+        {
+            "this_year": this_year.groupby("category")["my_share"].sum(),
+            "last_year": last_year.groupby("category")["my_share"].sum(),
+        }
+    ).fillna(0.0)
+    return _with_change(table)
+
+
+# ── Liquidity ───────────────────────────────────────────────────────────────
+
+
+def average_monthly_spend(monthly_spend: pd.Series, today: pd.Timestamp) -> float:
+    """Mean spending per month over the complete months (the current month is
+    still partial); with only that one month, its own."""
+    complete = monthly_spend[monthly_spend.index != today.to_period("M")]
+    return float((complete if len(complete) else monthly_spend).mean())
+
+
+def liquidity(net_worth: pd.DataFrame, monthly_spend: float) -> dict[str, float]:
+    """Where today's net worth sits by how fast you could spend it, from the
+    latest month: cash (savings and checking), invested (taxable accounts),
+    locked (retirement), home equity (Real Estate, net of the mortgage on
+    sheets that keep it there) and debts, plus how many months of spending
+    the cash alone, and cash plus investments, would cover."""
+    latest = net_worth.iloc[-1]
+    result = {
+        "cash": latest["Cash & Savings"],
+        "invested": latest["Investments"],
+        "locked": latest["Retirement"],
+        "home": latest["Real Estate"],
+        "debts": latest["Liabilities"],
+        "monthly_spend": monthly_spend,
+    }
+    if monthly_spend > 0:
+        result["runway_cash"] = result["cash"] / monthly_spend
+        result["runway_liquid"] = (result["cash"] + result["invested"]) / monthly_spend
+    return result
+
+
+def emergency_fund(
+    cash: float, monthly_spend: float, months: float
+) -> dict[str, float]:
+    """The cash you'd want on hand for months of spending, and how far cash is
+    above (surplus) or below (shortfall, negative) it."""
+    target = monthly_spend * months
+    return {"target": target, "surplus": cash - target}
+
+
+# ── Dividend income ─────────────────────────────────────────────────────────
+
+
+def load_dividends() -> pd.DataFrame:
+    """The pipeline's dividends_ledger tab (its table sits under a summary),
+    from the same spreadsheet as holdings_dump. Empty if the tab is missing."""
+    return read_from_sheets(
+        DIVIDENDS_LEDGER_SHEET_NAME,
+        _holdings_spreadsheet_name(),
+        header_label="Transaction ID",
+    )
+
+
+def parse_dividends(raw: pd.DataFrame) -> pd.DataFrame:
+    """The ledger as date, institution, name (its ticker, else the security's
+    name) and amount, oldest first."""
+    columns = ["date", "institution", "name", "amount"]
+    if raw.empty:
+        return pd.DataFrame(columns=columns)
+
+    def text(column):
+        return raw[column].fillna("").astype(str).str.strip()
+
+    symbol = text("Symbol") if "Symbol" in raw else pd.Series("", index=raw.index)
+    df = pd.DataFrame(
+        {
+            "date": raw["Posted"].map(_to_date),
+            "institution": text("Institution"),
+            "name": symbol.where(symbol != "", text("Security")),
+            "amount": raw["Amount"].map(_to_number),
+        }
+    )
+    return df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+
+
+def dividends_by_month(dividends: pd.DataFrame, months: pd.PeriodIndex) -> pd.DataFrame:
+    """Month x institution of the dividends received, every month present."""
+    table = dividends.assign(month=dividends["date"].dt.to_period("M")).pivot_table(
+        index="month", columns="institution", values="amount", aggfunc="sum"
+    )
+    return table.reindex(index=months).fillna(0.0)
+
+
+def top_dividend_payers(
+    dividends: pd.DataFrame, year: int, n: int = 10
+) -> pd.DataFrame:
+    """The year's biggest payers by name: name, total and payments."""
+    this_year = dividends[dividends["date"].dt.year == year]
+    table = (
+        this_year.groupby("name")
+        .agg(total=("amount", "sum"), count=("amount", "size"))
+        .sort_values("total", ascending=False)
+    )
+    return table.head(n).reset_index()
+
+
+def dividend_run_rate(
+    dividends: pd.DataFrame, today: pd.Timestamp
+) -> dict[str, float] | None:
+    """Dividends over the last 12 months and a yearly pace: that sum, or when
+    the ledger has less than a year of history (it only grows from when the
+    pipeline started), what it holds scaled up to twelve months. None if
+    there are no dividends in the last 12 months."""
+    recent = dividends[dividends["date"] > today - pd.DateOffset(years=1)]
+    if recent.empty:
+        return None
+    first = dividends["date"].min()
+    covered = min(12.0, max(1.0, (today - first).days / 30.4))
+    total = float(recent["amount"].sum())
+    return {
+        "last_12_months": total,
+        "per_year": total * 12 / covered,
+        "months_of_history": covered,
+        "estimated": covered < 12,
+    }

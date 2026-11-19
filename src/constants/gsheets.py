@@ -20,3 +20,6 @@ DEFAULT_BUDGET_SPREADSHEET_NAME = "Budget - 2026"
 HOLDINGS_SPREADSHEET_NAME_ENV_VAR = "HOLDINGS_SPREADSHEET_NAME"
 DEFAULT_HOLDINGS_SPREADSHEET_NAME = "RH_Sheets"
 HOLDINGS_DUMP_SHEET_NAME = "holdings_dump"
+
+# The pipeline's persistent dividend ledger, in the same spreadsheet
+DIVIDENDS_LEDGER_SHEET_NAME = "dividends_ledger"
