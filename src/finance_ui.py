@@ -337,6 +337,16 @@ def kpi_tile(label, value, sub, cls=None):
     )
 
 
+def stat_tile(label, text, sub, cls="amb"):
+    """A headline tile for a figure that isn't dollars (a rate, a number of
+    months): text is shown as given."""
+    return (
+        f'<div class="t-kpi {cls}"><div class="t-kpi-label">{label}</div>'
+        f'<div class="t-kpi-value {cls}">{text}</div>'
+        f'<div class="t-kpi-sub">{sub}</div></div>'
+    )
+
+
 def kpi_row(title, tiles):
     """A titled row of tiles, leaving out empty ones (a figure the sheet
     doesn't have); nothing at all if every tile is empty."""

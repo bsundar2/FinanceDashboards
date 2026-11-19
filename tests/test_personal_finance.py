@@ -731,3 +731,207 @@ class TestCategorySummary:
             assert summary.loc[category, "change"] == (
                 net_worth[category].iloc[-1] - net_worth[category].iloc[0]
             )
+
+
+DEBT_NET_WORTH = [
+    ["Net Worth Tracker"],
+    [],
+    _MONTH_HEADER,
+    ["", "House", "Home", "", 1000, 1000, 1000],
+    ["", "Mortgage Balance", "Mortgage", "", 400, 380, 360],
+    ["Subtotal – Real Estate", "", "", "", 600, 620, 640],
+    ["", "Card", "Credit Card", "", 10, 5, 0],
+    ["Subtotal – Liabilities", "", "", "", -10, -5, 0],
+    ["Subtotal – Checking & Savings", "", "", "", 100, 200, 300],
+    ["Subtotal – Investments", "", "", "", 1000, 1100, 900],
+    ["Subtotal – Retirement", "", "", "", 5000, 5000, 5100],
+    ["NET WORTH (Assets − Liabilities)", "", "", "", 6690, 6915, 7040],
+    ["Monthly Savings Contributions"],
+    ["", "Brokerage", "Stocks", "", 0, 100, 50],
+    ["Total Contributed (YTD)", "", "", "", 0, 100, 50],
+]
+
+
+class TestDebtBalance:
+    def test_liabilities_plus_mortgage_row_as_negative(self):
+        debt = pf.debt_balance(DEBT_NET_WORTH, MONTHS)
+
+        assert list(debt) == [-410, -385, -360]
+
+
+class TestNetWorthChangesAttribution:
+    def test_debt_paid_down_and_retirement_come_out_of_the_rest(self):
+        net_worth = pf.parse_net_worth(DEBT_NET_WORTH, MONTHS)
+        debt = pf.debt_balance(DEBT_NET_WORTH, MONTHS)
+
+        changes = pf.net_worth_changes(net_worth, debt, retirement_total=40)
+
+        assert list(changes["change"]) == [225, 125]
+        assert list(changes["saved"]) == [100, 50]
+        assert list(changes["debt"]) == [25, 25]
+        assert list(changes["retirement"]) == [20, 20]
+        assert list(changes["market"]) == [80, 30]
+        # the four parts always add back up to the change
+        parts = changes[["saved", "debt", "retirement", "market"]].sum(axis=1)
+        assert list(parts) == list(changes["change"])
+
+
+class TestSavingsRates:
+    ITEMS = {
+        "gross_income": (100000, 120000),
+        "take_home": (60000, 70000),
+        "401k": (10000, 12000),
+        "401k_match": (2000, 2400),
+        "total_savings": (0, 21000),
+    }
+
+    def test_shares_of_take_home_and_gross_against_plan(self):
+        rates = pf.savings_rates(self.ITEMS, saved=12000)
+
+        assert rates["take_home"] == 0.2
+        assert rates["total"] == (12000 + 12000) / 100000
+        assert rates["target_take_home"] == 0.3
+        assert rates["target_total"] == (21000 + 14400) / 120000
+
+    def test_leaves_out_what_the_sheet_lacks(self):
+        assert pf.savings_rates({}, saved=100) == {}
+
+
+class TestCategoryMovers:
+    @staticmethod
+    def _log(rows):
+        return pd.DataFrame(
+            [(pd.Timestamp(d), c, v) for d, c, v in rows],
+            columns=["date", "category", "my_share"],
+        )
+
+    def test_last_complete_month_against_the_months_before(self):
+        log = self._log(
+            [
+                ("2026-01-10", "Dining", 100),
+                ("2026-02-10", "Dining", 200),
+                ("2026-03-10", "Dining", 300),
+                ("2026-01-12", "Pets", 50),
+                ("2026-03-12", "Gym", 40),
+                ("2026-04-02", "Dining", 999),  # the current month is left out
+            ]
+        )
+
+        movers, month, n = pf.category_movers(log, pd.Timestamp("2026-04-15"))
+
+        assert (str(month), n) == ("2026-03", 2)
+        dining = movers.set_index("category").loc["Dining"]
+        assert (dining["latest"], dining["baseline"], dining["change"]) == (
+            300,
+            150,
+            150,
+        )
+        assert dining["pct"] == 1.0
+        gym = movers.set_index("category").loc["Gym"]
+        assert pd.isna(gym["pct"])
+        assert list(movers["category"])[0] == "Dining"  # biggest change first
+
+    def test_empty_without_two_complete_months(self):
+        log = self._log([("2026-01-10", "Dining", 100)])
+
+        movers, month, n = pf.category_movers(log, pd.Timestamp("2026-02-15"))
+
+        assert movers.empty and month is None and n == 0
+
+
+class TestYearOverYear:
+    def test_compares_categories_and_keeps_ones_in_only_one_year(self):
+        this_year = pd.DataFrame(
+            {"category": ["Dining", "Travel"], "my_share": [300.0, 100.0]}
+        )
+        last_year = pd.DataFrame(
+            {"category": ["Dining", "Gym"], "my_share": [200.0, 60.0]}
+        )
+
+        table = pf.year_over_year(this_year, last_year).set_index("category")
+
+        assert table.loc["Dining", "change"] == 100
+        assert table.loc["Dining", "pct"] == 0.5
+        assert table.loc["Gym", "change"] == -60
+        assert pd.isna(table.loc["Travel", "pct"])
+
+
+class TestLiquidity:
+    def test_ladder_and_runway_from_latest_month(self):
+        net_worth = pf.parse_net_worth(DEBT_NET_WORTH, MONTHS)
+
+        result = pf.liquidity(net_worth, monthly_spend=100)
+
+        assert result["cash"] == 300
+        assert result["locked"] == 5100
+        assert result["runway_cash"] == 3
+        assert result["runway_liquid"] == 12
+
+    def test_no_runway_without_spending(self):
+        net_worth = pf.parse_net_worth(DEBT_NET_WORTH, MONTHS)
+
+        assert "runway_cash" not in pf.liquidity(net_worth, monthly_spend=0)
+
+    def test_average_skips_the_partial_current_month(self):
+        spend = pd.Series([100.0, 200.0, 5.0], index=MONTHS)
+
+        assert pf.average_monthly_spend(spend, TODAY) == 150
+        assert pf.average_monthly_spend(spend.iloc[2:], TODAY) == 5
+
+    def test_emergency_fund_surplus_and_shortfall(self):
+        assert pf.emergency_fund(1000, 100, 6) == {"target": 600, "surplus": 400}
+        assert pf.emergency_fund(300, 100, 6)["surplus"] == -300
+
+
+LEDGER = pd.DataFrame(
+    {
+        "Transaction ID": ["a", "b", "c", "d"],
+        "Posted": ["2026-01-15", "2026-02-15", "2026-02-20", "2025-06-01"],
+        "Institution": ["Fidelity", "Fidelity", "Wells Fargo", "Wells Fargo"],
+        "Security": ["Acme Fund", "Acme Fund", "Globex Corp", "Globex Corp"],
+        "Amount": [10.0, 12.0, "$5.50", 4.0],
+        "Symbol": ["ACME", "ACME", "", ""],
+    }
+)
+
+
+class TestDividends:
+    def test_parse_uses_ticker_else_security_name(self):
+        df = pf.parse_dividends(LEDGER)
+
+        assert list(df["name"]) == ["Globex Corp", "ACME", "ACME", "Globex Corp"]
+        assert df["amount"].sum() == 31.5
+
+    def test_empty_ledger(self):
+        assert pf.parse_dividends(pd.DataFrame()).empty
+
+    def test_by_month_and_institution(self):
+        df = pf.dividends_by_month(pf.parse_dividends(LEDGER), MONTHS)
+
+        assert list(df["Fidelity"]) == [10, 12, 0]
+        assert list(df["Wells Fargo"]) == [0, 5.5, 0]
+
+    def test_top_payers_for_the_year(self):
+        top = pf.top_dividend_payers(pf.parse_dividends(LEDGER), 2026)
+
+        assert list(top["name"]) == ["ACME", "Globex Corp"]
+        assert list(top["count"]) == [2, 1]
+
+    def test_run_rate_scaled_up_when_history_is_short(self):
+        df = pf.parse_dividends(LEDGER.iloc[:3])  # Jan 15 through Feb 20
+
+        rate = pf.dividend_run_rate(df, TODAY)
+
+        assert rate["last_12_months"] == 27.5
+        assert rate["estimated"]
+        assert rate["per_year"] > rate["last_12_months"]
+
+    def test_run_rate_is_the_last_12_months_given_a_full_year_of_history(self):
+        ledger = LEDGER.copy()
+        ledger.loc[3, "Posted"] = "2025-02-01"  # over a year before TODAY
+
+        rate = pf.dividend_run_rate(pf.parse_dividends(ledger), TODAY)
+
+        assert rate["last_12_months"] == 27.5  # the old row isn't counted
+        assert not rate["estimated"]
+        assert rate["per_year"] == 27.5

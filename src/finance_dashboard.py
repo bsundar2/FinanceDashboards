@@ -22,6 +22,7 @@ def __():
         legend,
         money,
         stacked_bars_svg,
+        stat_tile,
         table,
     )
     from src.finance_widgets import ShareBar
@@ -42,6 +43,7 @@ def __():
         pd,
         pf,
         stacked_bars_svg,
+        stat_tile,
         table,
     )
 
@@ -70,7 +72,8 @@ def __(mo):
         step=500,
         value=5000,
     )
-    return large_threshold, reload
+    emergency_months = mo.ui.number(start=1, stop=24, step=1, value=6)
+    return emergency_months, large_threshold, reload
 
 
 @app.cell
@@ -85,6 +88,24 @@ def __(mo, pd, pf, reload):
     except Exception as e:  # shown on the page instead of a stack trace
         workbook, load_error = None, f"{type(e).__name__}: {e}"
     return load_error, spreadsheet_name, today, workbook
+
+
+@app.cell
+def __(pf, reload, spreadsheet_name, today, load_error):
+    # ── Optional extras: each leaves its section out if it can't be read ────
+    reload.value
+    _year = pf.budget_year(spreadsheet_name, today)
+    previous_expenses = (
+        None
+        if load_error
+        else pf.load_previous_year_expenses(spreadsheet_name, _year, today)
+    )
+    try:
+        dividends = pf.parse_dividends(pf.load_dividends())
+        dividends_error = None
+    except Exception as e:
+        dividends, dividends_error = None, f"{type(e).__name__}: {e}"
+    return dividends, dividends_error, previous_expenses
 
 
 @app.cell
@@ -113,11 +134,13 @@ def __(html, load_error, mo, pd, pf, spreadsheet_name, today, workbook):
         else {}
     )
     buckets = pf.contribution_buckets(workbook[pf.NET_WORTH_TAB], months)
+    debt = pf.debt_balance(workbook[pf.NET_WORTH_TAB], months)
     month_labels = [m.strftime("%b") for m in months]
     return (
         budget_items,
         budgets,
         buckets,
+        debt,
         expenses,
         month_labels,
         months,
@@ -138,14 +161,18 @@ def __(large_threshold, mo, reload):
 
 
 @app.cell
-def __(budgets, expenses, large_threshold, months, net_worth, pf):
+def __(budget_items, budgets, debt, expenses, large_threshold, months, net_worth, pf):
     # ── Everything the sections below draw ──────────────────────────────────
     everyday, one_offs = pf.split_large(expenses, large_threshold.value)
     by_group = pf.monthly_by_group(everyday, budgets, months)
     monthly_spend = by_group.sum(axis=1)
     # What you logged as saved each month: the Net Worth tab's contributions
     savings = net_worth[pf.CONTRIBUTIONS]
-    changes = pf.net_worth_changes(net_worth)
+    # 401(k) and match only come as yearly figures, so they're split evenly
+    _retirement = sum(
+        budget_items.get(k, (0.0, 0.0))[0] for k in ("401k", "401k_match")
+    )
+    changes = pf.net_worth_changes(net_worth, debt, _retirement)
     return by_group, changes, everyday, monthly_spend, one_offs, savings
 
 
@@ -161,7 +188,7 @@ def __(mo, money, monthly_spend, net_worth, pf, savings, spreadsheet_name, html,
         return f"""<div class="t-kpi {cls}"><div class="t-kpi-label">{label}</div>
         <div class="t-kpi-value {cls}">{value}</div><div class="t-kpi-sub">{sub}</div></div>"""
 
-    mo.Html(f"""
+    header_html = f"""
     <div class="terminal">
       <div class="t-header">
         <div>
@@ -175,12 +202,24 @@ def __(mo, money, monthly_spend, net_worth, pf, savings, spreadsheet_name, html,
         {_kpi("Net worth", money(_nw.iloc[-1]), f"as of {_nw.index[-1].strftime('%b')} (live)", "pos")}
         {_kpi("Net worth change", money(_nw_change, signed=True), f"since {_nw.index[0].strftime('%b')} opening", "pos" if _nw_change >= 0 else "neg")}
       </div>
-    </div>""")
-    return
+    </div>"""
+    return (header_html,)
 
 
 @app.cell
-def __(budget_items, kpi_row, kpi_tile, mo, money, net_worth, pf, savings_log):
+def __(
+    budget_items,
+    header_html,
+    kpi_row,
+    kpi_tile,
+    mo,
+    money,
+    net_worth,
+    pf,
+    savings,
+    savings_log,
+    stat_tile,
+):
     # ── Income, savings and investment income, as on the sheet's Dashboard tab ─
     # A tile only appears when its row is found. Dividends, interest and
     # realized gain/loss come from the older sheet's Savings Log, so a sheet
@@ -201,15 +240,32 @@ def __(budget_items, kpi_row, kpi_tile, mo, money, net_worth, pf, savings_log):
         )
 
     _match = budget_items.get("401k_match", (0.0, 0.0))[0]
-    mo.Html(f"""
+    _rates = pf.savings_rates(budget_items, savings.sum())
+
+    def _rate_tile(key, target_key, label, sub):
+        if key not in _rates:
+            return ""
+        _target = _rates.get(target_key)
+        _cls = (
+            "amb" if _target is None else ("pos" if _rates[key] >= _target else "neg")
+        )
+        _vs = f" · plan {_target:.1%}" if _target is not None else ""
+        return stat_tile(label, f"{_rates[key]:.1%}", sub + _vs, _cls)
+
+    # One output with the header above, so there's no cell gap between them
+    mo.Html(header_html + f"""
     <div class="terminal">
-      {kpi_row("Income &amp; savings · this year", [
+      {kpi_row("Savings rate", [
+          _rate_tile("take_home", "target_take_home", "Of take-home pay", "logged contributions"),
+          _rate_tile("total", "target_total", "Of gross income", "contributions + 401(k) + match"),
+      ])}
+      {kpi_row("Income &amp; savings", [
           _budget_tile("gross_income", "Gross income"),
           _budget_tile("take_home", "Take-home pay"),
           _budget_tile("401k", "401(k) contributions", f"+ {money(_match)} company match" if _match else None),
           _budget_tile("total_savings", "Total savings"),
       ])}
-      {kpi_row("Investment income · this year", [
+      {kpi_row("Investment income", [
           _logged("dividends", "Dividends"),
           _logged("interest", "Interest"),
           _logged("stock_gain", "Realized gain/loss"),
@@ -246,7 +302,7 @@ def __(PALETTE, ShareBar, by_group, mo, money, month_labels, stacked_bars_svg):
     )
     mo.Html(f"""
     <div class="terminal">
-      <div class="t-section">1 · Spending by month (your share of each Splitwise expense)</div>
+      <div class="t-section">1 · Spending by month (your share)</div>
       <div class="t-chart">{group_bar}</div>
       <div class="t-chart">{_chart}</div>
       <div class="t-note">Click a group, in the bar or its chip, to see its sub-categories; click it again to close them.</div>
@@ -310,7 +366,7 @@ def __(
     _total = by_group[_group].sum()
     mo.Html(f"""
     <div class="terminal">
-      <div class="t-section">{html.escape(_group)} · {money(_total)} this year · {money(_total / len(by_group))} / month</div>
+      <div class="t-section">{html.escape(_group)} · {money(_total)} · {money(_total / len(by_group))} / month</div>
       {legend([html.escape(c) for c in _df.columns] + [f"{html.escape(_group)} total"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       {fold(f"{len(_rows)} sub-categories", f"{money(_total)} excl. one-offs", table(["Sub-category", "Spent (excl. one-offs)", "Per month", "Spent (all)", "Budget to date", "Over / under"], _rows))}
@@ -384,7 +440,59 @@ def __(
       </div>
       <div class="t-note">Spent includes one-offs. Budget to date is each category's monthly budget from the Monthly
       Expenses tab times the months elapsed, with the current month prorated by day; the sheet's Variance column
-      compares against the whole year's budget instead. Splitwise bills dated after today aren't counted yet.</div>
+      compares against the whole year's budget instead. Bills dated after today aren't counted yet.</div>
+    </div>""")
+    return
+
+
+@app.cell
+def __(everyday, expenses, fold, html, mo, money, pf, previous_expenses, table, today):
+    # ── Biggest changes in spending: vs recent months, and vs last year ─────
+    _movers, _month, _n = pf.category_movers(everyday, today)
+
+    def _pct(r):
+        return (
+            ("new", "")
+            if r.pct != r.pct
+            else (f"{r.pct:+.0%}", "neg" if r.pct > 0 else "pos")
+        )
+
+    def _rows(df, new, old):
+        return [
+            [
+                (html.escape(r.category), "tk"),
+                (money(getattr(r, new)), ""),
+                (money(getattr(r, old)), ""),
+                (money(r.change, signed=True), "neg" if r.change > 0 else "pos"),
+                _pct(r),
+            ]
+            for r in df.itertuples()
+        ]
+
+    _blocks = []
+    if _month is not None:
+        _rows_m = _rows(_movers.head(10), "latest", "baseline")
+        _blocks.append(
+            f"""
+        <div class="t-section">{_month.strftime("%B")} against the {_n} month{"s" if _n > 1 else ""} before it</div>
+        {fold(f"{len(_rows_m)} biggest changes", f"{money(_movers["change"].sum(), signed=True)} in total", table(["Category", _month.strftime("%b"), f"Average of previous {_n}", "Change", "%"], _rows_m))}"""
+        )
+    if previous_expenses is not None and len(previous_expenses):
+        _yoy = pf.year_over_year(expenses[expenses["date"] <= today], previous_expenses)
+        _rows_y = _rows(_yoy.head(10), "this_year", "last_year")
+        _blocks.append(
+            f"""
+        <div class="t-section">This year so far against the same stretch of last year</div>
+        {fold(f"{len(_rows_y)} biggest changes", f"{money(_yoy["change"].sum(), signed=True)} in total", table(["Category", "This year", "Last year", "Change", "%"], _rows_y))}"""
+        )
+    mo.stop(not _blocks)
+    mo.Html(f"""
+    <div class="terminal">
+      <div class="t-section">Where spending moved</div>
+      {"".join(_blocks)}
+      <div class="t-note">Your share of each sub-category, one-offs left out, red where spending rose. The month
+      comparison uses the last complete month; a sub-category with no spending in the earlier months shows as new.
+      Last year comes from the previous year's budget sheet (its name with the year changed), shown when it can be read.</div>
     </div>""")
     return
 
@@ -471,13 +579,16 @@ def __(
         _colors,
         line=list(net_worth[pf.NET_WORTH]),
     )
+    _change_colors = [PALETTE[1], PALETTE[3], PALETTE[0], PALETTE[2]]
     _change_chart = stacked_bars_svg(
         [m.strftime("%b") for m in changes.index],
         {
             "You put in": list(changes["saved"]),
-            "Everything else": list(changes["market"]),
+            "Debt paid down": list(changes["debt"]),
+            "401(k) + match (even split)": list(changes["retirement"]),
+            "Market & other": list(changes["market"]),
         },
-        [PALETTE[1], PALETTE[2]],
+        _change_colors,
         line=list(changes["change"]),
     )
     _rows = [
@@ -485,22 +596,150 @@ def __(
             (m.strftime("%b"), "tk"),
             (money(r.change, signed=True), "pos" if r.change >= 0 else "neg"),
             (money(r.saved, signed=True), "pos" if r.saved >= 0 else "neg"),
+            (money(r.debt, signed=True), "pos" if r.debt >= 0 else "neg"),
+            (money(r.retirement, signed=True), "pos" if r.retirement >= 0 else "neg"),
             (money(r.market, signed=True), "pos" if r.market >= 0 else "neg"),
         ]
         for m, r in zip(changes.index, changes.itertuples())
     ]
     mo.Html(f"""
     <div class="terminal">
-      <div class="t-section">3 · Net worth by month (Net Worth tab subtotals)</div>
+      <div class="t-section">3 · Net worth by month</div>
       {legend(_components + ["Net worth"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       <div class="t-section">Where each month's change came from</div>
-      {legend(["You put in", "Everything else", "Total change"], [PALETTE[1], PALETTE[2], "#e8edf5"])}
+      {legend(["You put in", "Debt paid down", "401(k) + match (even split)", "Market & other", "Total change"], _change_colors + ["#e8edf5"])}
       <div class="t-chart">{_change_chart}</div>
-      {fold(f"{len(changes)} months", f"{money(changes['change'].sum(), signed=True)} change", table(["Month", "Change", "You put in", "Everything else"], _rows), "pos" if changes["change"].sum() >= 0 else "neg")}
+      {fold(f"{len(changes)} months", f"{money(changes['change'].sum(), signed=True)} change", table(["Month", "Change", "You put in", "Debt paid down", "401(k) + match", "Market & other"], _rows), "pos" if changes["change"].sum() >= 0 else "neg")}
       <div class="t-note">"You put in" is the Monthly Savings Contributions rows at the bottom of the Net Worth tab.
-      "Everything else" is the rest of the change: markets, home value, paying down debt, and any saving not logged
-      there. The current month is still live until you paste its values at month end.</div>
+      "Debt paid down" is how much less you owe than the month before (the Liabilities subtotal and any mortgage
+      row). The sheet has only a yearly figure for the 401(k) and its match, so that part is spread evenly over the
+      months. "Market &amp; other" is the rest: market moves, home value, and cash left over from pay.
+      The current month is still live until you paste its values at month end.</div>
+    </div>""")
+    return
+
+
+@app.cell
+def __(
+    emergency_months,
+    fold,
+    kpi_row,
+    kpi_tile,
+    mo,
+    money,
+    monthly_spend,
+    net_worth,
+    pf,
+    stat_tile,
+    table,
+    today,
+):
+    # ── 4. Liquidity and runway ─────────────────────────────────────────────
+    _spend = pf.average_monthly_spend(monthly_spend, today)
+    _liq = pf.liquidity(net_worth, _spend)
+    _fund = pf.emergency_fund(_liq["cash"], _spend, emergency_months.value)
+
+    def _months(value):
+        return f"{value / _spend:.1f}" if _spend > 0 else "–"
+
+    _ladder = [
+        ("Cash &amp; savings", "available now", _liq["cash"]),
+        ("Investments", "taxable, a sale away", _liq["invested"]),
+        ("Retirement", "locked until retirement age", _liq["locked"]),
+        ("Real estate", "illiquid", _liq["home"]),
+        ("Liabilities", "owed", _liq["debts"]),
+    ]
+    _assets = sum(v for _, _, v in _ladder[:4])
+    _rows = [
+        [
+            (name, "tk"),
+            (note, ""),
+            (money(value), "pos" if value >= 0 else "neg"),
+            (f"{value / _assets:.0%}" if _assets and value >= 0 else "", ""),
+            (_months(value) if value >= 0 else "", ""),
+        ]
+        for name, note, value in _ladder
+    ]
+    _short = _fund["surplus"] < 0
+    mo.Html(f"""
+    <div class="terminal">
+      <div class="t-section">4 · Liquidity and runway</div>
+      {kpi_row("At today's spending", [
+          kpi_tile("Spending / month", _spend, "average of complete months · excl. one-offs", "amb"),
+          stat_tile("Cash runway", f"{_liq['runway_cash']:.1f} mo" if "runway_cash" in _liq else "–", "cash &amp; savings alone", "pos"),
+          stat_tile("Cash + investments", f"{_liq['runway_liquid']:.1f} mo" if "runway_liquid" in _liq else "–", "if you sold the taxable accounts", "pos"),
+          kpi_tile("Emergency fund " + ("shortfall" if _short else "surplus"), _fund["surplus"], f"cash against {emergency_months.value:g} months of spending ({money(_fund['target'])})"),
+      ])}
+      <div class="t-controls"><div><span class="t-control-label">Months of spending to keep in cash</span>{emergency_months}</div></div>
+      {fold(f"{len(_rows)} groups", f"{money(_assets)} in assets", table(["Where it sits", "How liquid", "Balance", "Share of assets", "Months of spending"], _rows))}
+      <div class="t-note">Spending is the average of the complete months so far, one-offs left out, so a down payment
+      doesn't shrink your runway. Real Estate is the sheet's subtotal, net of the mortgage where the sheet subtracts it there.</div>
+    </div>""")
+    return
+
+
+@app.cell
+def __(
+    PALETTE,
+    dividends,
+    dividends_error,
+    fold,
+    html,
+    kpi_row,
+    kpi_tile,
+    legend,
+    mo,
+    money,
+    month_labels,
+    months,
+    pf,
+    stacked_bars_svg,
+    stat_tile,
+    table,
+    today,
+    year,
+):
+    # ── 5. Dividend income, from the pipeline's dividends ledger ────────────
+    def _note(text):
+        return mo.Html(
+            f'<div class="terminal"><div class="t-section">5 · Dividend income</div><div class="t-note">{text}</div></div>'
+        )
+
+    mo.stop(
+        dividends is None,
+        _note(
+            f"Couldn't read the dividends ledger ({html.escape(str(dividends_error))})."
+        ),
+    )
+    mo.stop(
+        dividends.empty,
+        _note("The dividends ledger has no rows yet."),
+    )
+    _by_month = pf.dividends_by_month(dividends, months)
+    _names = list(_by_month.columns)
+    _colors = [PALETTE[i % len(PALETTE)] for i in range(len(_names))]
+    _total = _by_month.sum().sum()
+    _rate = pf.dividend_run_rate(dividends, today)
+    _payers = pf.top_dividend_payers(dividends, year)
+    _payer_rows = [
+        [(html.escape(r.name), "tk"), (money(r.total), "pos"), (str(r.count), "")]
+        for r in _payers.itertuples()
+    ]
+    mo.Html(f"""
+    <div class="terminal">
+      <div class="t-section">5 · Dividend income</div>
+      {kpi_row("From the dividends ledger", [
+          kpi_tile("This year", _total, f"{money(_total / len(months))} / month so far", "pos"),
+          kpi_tile("Last 12 months", _rate["last_12_months"], "all accounts in the ledger", "pos") if _rate else "",
+          kpi_tile("Yearly pace", _rate["per_year"], (f"scaled up from {_rate['months_of_history']:.0f} months of history" if _rate["estimated"] else "the last 12 months"), "amb") if _rate else "",
+      ])}
+      {legend([html.escape(n) for n in _names], _colors)}
+      <div class="t-chart">{stacked_bars_svg(month_labels, {html.escape(n): list(_by_month[n]) for n in _names}, _colors, line=list(_by_month.sum(axis=1)))}</div>
+      {fold(f"{len(_payer_rows)} biggest payers", f"{money(_payers['total'].sum())}", table(["Security", "Received", "Payments"], _payer_rows), "pos")}
+      <div class="t-note">Wells Fargo and Fidelity dividends the pipeline has recorded; the ledger only grows from when it
+      started, so a yearly pace over less than a year of history is an estimate. Securities are shown by ticker where the
+      ledger has one.</div>
     </div>""")
     return
 
