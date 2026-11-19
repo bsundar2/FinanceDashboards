@@ -281,6 +281,7 @@ class TestParseBudgetItems:
             "401k": (24500, 24500),
             "401k_match": (7250, 7250),
             "take_home": (205469.23, 191356.16),
+            "take_home_savings": (64428.8, 57019.12),
             "total_savings": (88928.8, 81519.12),
         }
 
@@ -782,19 +783,26 @@ class TestSavingsRates:
         "take_home": (60000, 70000),
         "401k": (10000, 12000),
         "401k_match": (2000, 2400),
-        "total_savings": (15000, 21000),
+        "take_home_savings": (15000, 21000),
+        "total_savings": (27000, 33000),
     }
 
     def test_shares_of_take_home_and_gross(self):
         rates = pf.savings_rates(self.ITEMS, saved=12000)
 
         assert rates["take_home"] == 0.25
-        assert rates["total"] == (15000 + 12000) / 100000
+        assert rates["total"] == 0.27
 
-    def test_falls_back_to_logged_contributions_without_a_total_savings_row(self):
-        items = {k: v for k, v in self.ITEMS.items() if k != "total_savings"}
+    def test_falls_back_to_logged_contributions_without_the_savings_rows(self):
+        items = {
+            k: v
+            for k, v in self.ITEMS.items()
+            if k not in ("take_home_savings", "total_savings")
+        }
+        rates = pf.savings_rates(items, saved=12000)
 
-        assert pf.savings_rates(items, saved=12000)["take_home"] == 0.2
+        assert rates["take_home"] == 0.2
+        assert rates["total"] == (12000 + 12000) / 100000
 
     def test_leaves_out_what_the_sheet_lacks(self):
         assert pf.savings_rates({}, saved=100) == {}

@@ -206,6 +206,7 @@ BUDGET_ITEMS = {
     "401k": "401k contribution",
     "401k_match": "401k company match",
     "total_savings": "total savings",
+    "take_home_savings": "take-home savings",
 }
 
 
@@ -927,28 +928,32 @@ def allocation(
 
 
 def savings_rates(budget_items: dict, saved: float) -> dict[str, float]:
-    """The year's savings as a share of income.
+    """The year's savings as a share of income, as the Dashboard tab shows it.
 
-    The Budget tab's own Total Savings row is the savings figure, as in the
-    Dashboard tab's take-home savings rate (that row over actual take-home
-    pay). saved, the logged contributions to date, stands in when the sheet
+    take_home: the Budget tab's Take-Home Savings row over actual take-home
+    pay. saved, the logged contributions to date, stands in when the sheet
     has no such row.
-
-    take_home: savings / actual take-home pay.
-    total: (savings + 401(k) + company match) / actual gross income, the
-    whole share of pay that went into assets.
+    total: the Total Savings row (take-home savings plus what went to the
+    401(k)) over actual gross income; without that row, saved plus the
+    401(k) and company match.
     A rate whose figures the sheet doesn't have is left out."""
 
     def actual(key):
         return budget_items.get(key, (0.0, 0.0))[0]
 
-    savings = actual("total_savings") if "total_savings" in budget_items else saved
-    retirement = actual("401k") + actual("401k_match")
+    take_home_savings = (
+        actual("take_home_savings") if "take_home_savings" in budget_items else saved
+    )
+    total_savings = (
+        actual("total_savings")
+        if "total_savings" in budget_items
+        else saved + actual("401k") + actual("401k_match")
+    )
     rates = {}
     if actual("take_home"):
-        rates["take_home"] = savings / actual("take_home")
+        rates["take_home"] = take_home_savings / actual("take_home")
     if actual("gross_income"):
-        rates["total"] = (savings + retirement) / actual("gross_income")
+        rates["total"] = total_savings / actual("gross_income")
     return rates
 
 
