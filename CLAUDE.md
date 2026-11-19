@@ -1,0 +1,87 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this project does
+
+marimo dashboards over a yearly budget Google Sheet, plus the template that sheet is built from. They read Google Sheets live; they don't depend on any pipeline code.
+
+- **Yearly Overview** (`src/finance_dashboard.py`): spending, savings by month and net worth, year to date.
+- **Net Worth** (`src/net_worth_dashboard.py`): allocation by category and type, accounts by month, and the securities each account holds.
+- **Budget template** (`src/budget_template.py`, `src/budget_migration.py`): builds the `.xlsx` the sheet comes from. The dashboards' parser reads exactly the labels the template writes.
+
+The data is written elsewhere: [SplitwiseToSheets](https://github.com/bsundar2/SplitwiseToSheets) fills the Expense Log tabs, and [FinanceToSheets](https://github.com/bsundar2/FinanceToSheets) fills `bank_accounts_dump` and `holdings_dump`. FinanceToSheets also hosts the Swing Trading (P&L) tracker, which is its own app; this repo only links to it.
+
+## Commands
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest tests/ -v
+black src/ tests/
+
+# Yearly Overview / Net Worth on their own
+marimo run src/finance_dashboard.py
+marimo run src/net_worth_dashboard.py
+
+# Both behind one password, as on Render (Yearly Overview at /, Net Worth at /net-worth)
+FINANCE_TOKEN=<password> uvicorn --factory src.dashboard_server:create_app --port 2718
+
+# Budget template, or an old sheet moved onto it
+python -m src.budget_template --out "Budget Template.xlsx" --year 2027
+python -m src.budget_migration "Budget - 2026.xlsx" --out "Budget - 2026 (v2).xlsx" --name Alex --partner Sam --year 2026
+```
+
+Start the server from the repo root: marimo finds `.marimo.toml` (dark theme) by searching up from the working directory.
+
+## Environment variables
+
+| Variable | Description |
+|---|---|
+| `GSHEETS_AUTH_FILE` | Service account credentials file (default `data/gsheets_authentication.json`). On Render, a secret file under `/etc/secrets/`. |
+| `BUDGET_SPREADSHEET_NAME` | The yearly budget sheet to read (default `Budget - 2026`). Must be shared with the service account. |
+| `HOLDINGS_SPREADSHEET_NAME` | The spreadsheet with the pipeline's `holdings_dump` tab (default `RH_Sheets`). Optional: without it the Net Worth page shows balances only. |
+| `FINANCE_TOKEN` | The password for the dashboards (the server refuses to start without it). |
+| `FINANCE_DASHBOARD_URL`, `NET_WORTH_DASHBOARD_URL` | Menu-bar links to the two pages (default `/` and `/net-worth`). |
+| `PNL_DASHBOARD_URL`, `SPENDING_DASHBOARD_URL` | Menu-bar links to the Swing Trading and Spending apps, which run elsewhere. Each link is hidden when its URL is unset. |
+
+## Architecture
+
+### Personal finance dashboard (`src/finance_dashboard.py`)
+
+A marimo app over the yearly budget spreadsheet. Parsing and analysis live in `src/personal_finance.py` (unit-tested in `tests/test_personal_finance.py`); the notebook cells only draw. Those tabs are reports with title rows above their headers, so they're read as raw cell matrices with `read_values_from_sheets()` (unformatted values, dates as serial day numbers) and parsed by locating header rows and labels rather than fixed positions:
+- **Expense Log** (Splitwise export): `My Owed` is your share of each expense, whoever paid. A household sheet's `Partner Expense Log` (read only if the tab exists, through `read_values_from_sheets()`'s optional tabs) is added in, so spending is the household's. Rows dated after today are skipped (Splitwise holds upcoming bills), and rows at or above an adjustable threshold are listed separately as one-offs instead of charted. Above the monthly chart, a `finance_widgets.ShareBar` of each group's share of the year (with `allow_none`; it doubles as the chart's legend, and a group whose refunds outweigh its spending is a chip only) opens one group's sub-categories on demand: `monthly_by_category()` stacked by month with the group's total as a line, largest first and beyond eight summed into Other, plus a table with `budget_vs_actual()`'s figures for each, which count one-offs as the budget tables do.
+- **Monthly Expenses**: each sub-category's group and monthly budget. Budget to date prorates the current month by day.
+- **Savings by month**: the Yearly Overview's Saved tile and section 2 show the logged contributions (the Net Worth tab's Monthly Savings Contributions rows, below) in dollars, per month and year to date, not as a rate of take-home. They're logged savings, not take-home minus spending, so a purchase paid from savings, like a down payment, doesn't lower them.
+- **Dashboard tab tiles**, split by topic: the Yearly Overview has income & savings and investment income (dividends, interest, stock gain/loss, market change) under its header KPIs, both drawn with `kpi_tile()`/`kpi_row()` from `finance_ui.py`. `parse_budget_items()` reads the Budget tab's `Total Gross Income`, `Take-Home Pay`, `401k Contribution`, `401k Company Match` and `Total Savings` rows by label, as (Actual Yearly, Budget Yearly); both the old sheet and the template use those labels. `parse_savings_log()` reads the older sheet's `Savings Log` tab (optional, loaded with the other tabs through `load_budget_workbook()`; the template has none, so it just skips those tiles) for `Dividends Received`, `Interest` and `Stock Gain/Loss` by the start of their column A label (the last is shown as "Realized gain/loss"). `market_change()` is the Dashboard tab's YTD Market Change: the net worth change less the logged contributions and the 401(k) plus match, with its share of the change. It only counts contributions through the current month, so one logged early in a later month's column makes the two differ by that amount. A tile whose row isn't found is left out.
+- **Net Worth**: the subtotal rows and NET WORTH row for each month through the current one (later months only repeat the live current month), plus the Monthly Savings Contributions rows at the bottom, which split each month's change into what you put in and everything else.
+  `contribution_buckets()` reads the Monthly Savings Contributions rows one by one (named like account rows, e.g. `Brokerage · Stocks`) for the Yearly Overview's section 2, Savings by month: those rows stacked by month with the month's total saved as a line, and a table of each month's amount per bucket, its total and the running total for the year. All-zero rows are dropped and, beyond eight, the smallest are summed into `Other`.
+  `net_worth_breakdown()` also reads the account rows (label in column B) above each subtotal, for the Net Worth page (`src/net_worth_dashboard.py`, which reads just the Net Worth tab with `load_net_worth_tabs()`, since it shows current balances and leaves everything year-to-date to the Yearly Overview): the selected category's accounts stacked by month, with the subtotal as a line. Each account is named from its institution, account and type columns (D, B, C, e.g. `Wells Fargo · Savings · Joint`), since column B alone is often generic. A row whose account or type says liability, mortgage, loan, debt or credit card always counts as negative, because the live sheet keeps the mortgage positive and subtracts it in the Real Estate subtotal formula. Beyond seven accounts the smallest (by latest balance) are summed into `Other`, and any remaining gap between the rows and the subtotal shows as `Not itemized`, so the bars always add up to the subtotal.
+  The Net Worth page opens on its **Allocation** overview, then drills into one category at a time instead of listing every category's details. The overview is the asset categories (`ASSET_COMPONENTS`: everything but Liabilities, with Real Estate net of the mortgage) as shares of their total in one 100% bar, plus `category_summary()`'s table (each category's value, share of assets, Liabilities included with no share). The bar is `finance_widgets.ShareBar`, an anywidget wrapped in `mo.ui.anywidget()`: clicking a segment, or its chip above the bar (Liabilities is a chip only), sets its `selected` trait, which re-runs the category panel below. It defaults to the largest category. It's drawn with flex divs, not an SVG, so it keeps its height on a phone, and its CSS lives in the widget, since anywidgets render in their own shadow root. The panel shows `allocation()`'s types for that category: its account rows grouped by the Type column (C: Stocks, ETF, Crypto, Foreign, I-Bonds, 401k, Roth IRA, Joint...) through `account_types()`, case- and space-insensitively, with the account's name standing in for a blank type, and a gap to the subtotal as a `Not itemized` type. They're drawn as a second `ShareBar` with `allow_none`, so clicking a type filters the holdings below to that type's accounts and clicking it again clears the filter. Shares are blank (`_weights()`) when a group mixes assets and debts, so Real Estate (house, mortgage) shows its rows but no bar and no filter. Below the types are the category's accounts stacked by month.
+  Under the chart, a dropdown (All accounts, or one account, limited to the selected type's accounts) drills into row-level assets from `holdings_dump` (`load_holdings()`, from the spreadsheet named by `HOLDINGS_SPREADSHEET_NAME`). `net_worth_accounts()` lists the rows with their Institution, Type, Balance Key and My Share % (the older sheet has neither of the last two, so no key and 100%). `holdings_accounts()` decides which SimpleFIN holdings accounts make up each row: with a Balance Key, every account whose `Institution Account Name` contains it (or a 4-digit number in it); without one, only Investments/Retirement rows are matched (so a brokerage's uninvested-cash row under Cash & Savings gets no securities), by institution, first the accounts whose name contains the row's type (`401k` matches `401(k)` once punctuation is dropped), then, if the row is the only one left for its institution, whatever accounts are left (Wells Fargo `Stocks` -> `WELLSTRADE`). `account_holdings()` merges a fund listed once per money source (Empower) into one row, scales by the share, and adds `Cash & other` for the rest of the row's balance. When the holdings are worth more than the row (usually the sheet's GOOGLEFINANCE prices vs. SimpleFIN's last close) there's no row for the difference, since it isn't a position, so such an account's rows add up to its holdings rather than its balance. A row with no holdings is one `Balance (no holdings reported)` row. A failed holdings read is shown as a note and every account falls back to its balance.
+
+Charts are hand-rolled SVG. The two notebooks share their `<style>` block (`STYLE`) and chart/table helpers (`stacked_bars_svg`, `table`, `fold`, `legend`, `money`, `PALETTE`) through `src/finance_ui.py`. Each table sits in a `<details class="t-collapsible">` fold under its section title, closed by default, with a count and a headline figure in its summary line; charts stay open. The dark styling matches SplitwiseToSheets's spending dashboard: each notebook's `<style>` block colors the page background, and `.marimo.toml` (`[display] theme = "dark"`) makes marimo's own frame and widgets dark too.
+
+### One server (`src/dashboard_server.py`, `src/dashboard_nav.py`)
+
+Render's `finance-dashboard` service runs `uvicorn --factory src.dashboard_server:create_app`, which mounts the Yearly Overview at `/` and the Net Worth page at `/net-worth` with `marimo.create_asgi_app()`, wrapped in `PasswordGate`. The gate is used instead of marimo's own token login because, with several apps mounted, marimo keeps a separate cookie per app and redirects the other apps' login to the root app's form. The gate: a `/login` page (password = `FINANCE_TOKEN`, compared with `hmac.compare_digest`, a 1s delay on a wrong guess), then one `itsdangerous`-signed, HttpOnly, SameSite=Lax cookie valid for every path for 1 day (the expiry is also enforced when the cookie is checked, not just by the browser). It's `Secure` when Render forwards `x-forwarded-proto: https`, and it's signed with a key derived from the password, so changing the password logs everyone out. Websockets without the cookie are closed with 1008. The `next` redirect only accepts same-site paths. `create_app()` refuses to start without a password. Covered by `tests/test_dashboard_server.py`.
+
+`dashboard_nav.nav_html()` is the menu bar at the top of each notebook: Yearly Overview, Net Worth, and, only when their URL env vars are set, Swing Trading (`PNL_DASHBOARD_URL`, FinanceToSheets's P&L tracker) and Spending (`SPENDING_DASHBOARD_URL`, SplitwiseToSheets's dashboard). Those two are separate apps with their own data and login, so their links carry an arrow-out-of-a-box icon (`_EXTERNAL_ICON`), unlike the two pages over the budget sheet. The icon is `display: inline-block`, since marimo's base CSS makes every `svg` a block, which would wrap it under the label. `dashboard_nav.py` has no third-party imports.
+
+### Budget template (`src/budget_template.py`, `src/budget_migration.py`)
+
+`build_workbook(BudgetSpec)` writes the yearly budget spreadsheet as an openpyxl `.xlsx` that gets imported into Google Sheets: the generic household template, one sheet both partners share, or an existing single-person sheet moved onto it. There's no Sheets API step, since a newly created spreadsheet would be owned by the service account, which has no Drive storage. Tabs: Instructions, Settings (name/partner/year/each person's paychecks per year, at `Settings!B3:B7`, read by every formula), Income (each person's pay in their own four columns, C-F and H-K, rows 5-19), Budget (rows 5-19 add the two Income blocks up; category budgets below), Monthly Expenses, Expense Log and Partner Expense Log (SplitwiseToSheets's export columns, `My Owed` in column I; every SUMIFS adds both), Accounts (hand-entered balances in A:E, optional IMPORTRANGEs of each person's `bank_accounts_dump` spilling into G5:J and L5:O), Net Worth, and Dashboard. Row positions that depend on how many categories or accounts there are come from `plan_layout()`. Labels the dashboard parser matches (`Sub-Category`, `Budget Yearly`, `Monthly`, `Take-Home Pay`, the `Subtotal – ...` rows, `NET WORTH`, the contributions header and `Total Contributed (YTD)`) are kept verbatim, so `src/personal_finance.py` reads both layouts, and the household totals are what it sees. Change a label here only together with the parser.
+
+The Net Worth design is what makes the household view work. Each row is one account at its full balance, with a Balance Key and each person's % (F, G; G defaults to `=1-F`). Its live months are `lookup_formula()`: an Accounts label exactly equal to the key + any imported account (either person's block) whose name contains it, e.g. `(1234)`, so rows don't break when SimpleFIN adds or reorders accounts. Subtotals are `SUMPRODUCT(month, F+G)`, so an ordinary row counts in full, and a row whose two %s cancel (Extra Principal Credit: the payer +40%, the other -40%) only moves equity between the two. The two rows under NET WORTH are `SUMPRODUCT(month, F)` and `SUMPRODUCT(month, G)` over the whole table: each person's net worth. All values are signed (the mortgage balance is negative). Top-5 lists on the Dashboard use LARGE/INDEX/MATCH (with an `Over Budget` helper column S on Monthly Expenses), not SORT/FILTER/QUERY, so Google Sheets, Excel and LibreOffice all evaluate them.
+
+`migrate()` reads the old layout (Google's `.xlsx` export, with cached values) into your side of the household sheet:
+- `unwrap()` undoes Google's `=IFERROR(__xludf.DUMMYFUNCTION("..."), cached)` wrapping of IMPORTRANGE/GOOGLEFINANCE/QUERY.
+- Budget rows 5-19 are copied cell for cell into your Income columns. A category the old Total Expenses formula subtracted (`-C42`) becomes In Totals = No.
+- Net Worth: the old rows held your share; the new ones hold the full balance. A live formula reading a fixed `'Savings Log'` cell becomes a Balance Key (the account's `(1234)` suffix, or the hand-entered label). A share factor (`=-0.6*'Savings Log'!...`, `=1555000*0.6`, `=0.4 * LET(...)`) becomes your % (`_share_factor()`), and frozen past values are divided by it; on an "Extra" row the partner's % is minus yours. Other formulas are moved with `translate()` (month columns +3, rows remapped, `COLUMN()-n` offsets adjusted, quoted text and other tabs untouched) at 100% yours. Rows the old Real Estate subtotal subtracted are stored negated.
+
+`tests/test_budget_template.py` recalculates a built workbook in LibreOffice (skipped without `libreoffice-calc`) to check the formulas, and runs the dashboard parser over the result.
+
+## Key conventions
+
+- **Personal data stays out of the repo.** Credentials, spreadsheet names that identify the household and real balances don't belong in code, tests or docs. Test data is made up.
+- **pandas `2.2.0`** is pinned in `requirements.txt`; upgrade it deliberately and run the tests.
+- **Tests** mock all Google Sheets I/O; the formula tests recalculate in LibreOffice and are skipped without `libreoffice-calc`.

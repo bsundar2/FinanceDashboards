@@ -1,0 +1,5 @@
+[tool.marimo.runtime]
+# Lets the notebooks' "from src.foo import bar" imports resolve: without
+# this, the notebook's own directory (src/) is the only import root marimo
+# considers, so "src" itself never resolves as a package.
+pythonpath = ["."]

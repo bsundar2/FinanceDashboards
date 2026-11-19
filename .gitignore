@@ -1,0 +1,18 @@
+# marimo session cache
+__marimo__/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Credentials (the service account key) - never commit
+/data/
+.idea
+.vscode/

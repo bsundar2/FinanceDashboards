@@ -1,0 +1,8 @@
+marimo
+anywidget  # clickable charts on the Net Worth page (src/finance_widgets.py)
+pandas==2.2.0
+pygsheets
+itsdangerous  # PasswordGate's signed cookie (src/dashboard_server.py)
+starlette
+uvicorn
+openpyxl  # the budget template (src/budget_template.py)
