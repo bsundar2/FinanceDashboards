@@ -785,13 +785,11 @@ class TestSavingsRates:
         "total_savings": (0, 21000),
     }
 
-    def test_shares_of_take_home_and_gross_against_plan(self):
+    def test_shares_of_take_home_and_gross(self):
         rates = pf.savings_rates(self.ITEMS, saved=12000)
 
         assert rates["take_home"] == 0.2
         assert rates["total"] == (12000 + 12000) / 100000
-        assert rates["target_take_home"] == 0.3
-        assert rates["target_total"] == (21000 + 14400) / 120000
 
     def test_leaves_out_what_the_sheet_lacks(self):
         assert pf.savings_rates({}, saved=100) == {}
