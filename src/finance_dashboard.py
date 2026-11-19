@@ -586,7 +586,7 @@ def __(
             "You put in": list(changes["saved"]),
             "Debt paid down": list(changes["debt"]),
             "401(k) + match (even split)": list(changes["retirement"]),
-            "Markets & everything else": list(changes["market"]),
+            "Market & other": list(changes["market"]),
         },
         _change_colors,
         line=list(changes["change"]),
@@ -604,17 +604,17 @@ def __(
     ]
     mo.Html(f"""
     <div class="terminal">
-      <div class="t-section">3 · Net worth by month (Net Worth tab subtotals)</div>
+      <div class="t-section">3 · Net worth by month</div>
       {legend(_components + ["Net worth"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       <div class="t-section">Where each month's change came from</div>
-      {legend(["You put in", "Debt paid down", "401(k) + match (even split)", "Markets & everything else", "Total change"], _change_colors + ["#e8edf5"])}
+      {legend(["You put in", "Debt paid down", "401(k) + match (even split)", "Market & other", "Total change"], _change_colors + ["#e8edf5"])}
       <div class="t-chart">{_change_chart}</div>
-      {fold(f"{len(changes)} months", f"{money(changes['change'].sum(), signed=True)} change", table(["Month", "Change", "You put in", "Debt paid down", "401(k) + match", "Markets & everything else"], _rows), "pos" if changes["change"].sum() >= 0 else "neg")}
+      {fold(f"{len(changes)} months", f"{money(changes['change'].sum(), signed=True)} change", table(["Month", "Change", "You put in", "Debt paid down", "401(k) + match", "Market & other"], _rows), "pos" if changes["change"].sum() >= 0 else "neg")}
       <div class="t-note">"You put in" is the Monthly Savings Contributions rows at the bottom of the Net Worth tab.
       "Debt paid down" is how much less you owe than the month before (the Liabilities subtotal and any mortgage
       row). The sheet has only a yearly figure for the 401(k) and its match, so that part is spread evenly over the
-      months. "Markets &amp; everything else" is the rest: market moves, home value, and cash left over from pay.
+      months. "Market &amp; other" is the rest: market moves, home value, and cash left over from pay.
       The current month is still live until you paste its values at month end.</div>
     </div>""")
     return
