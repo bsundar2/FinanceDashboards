@@ -927,35 +927,23 @@ def allocation(
 
 
 def savings_rates(budget_items: dict, saved: float) -> dict[str, float]:
-    """The year's savings as a share of income, against the budget's own
-    plan. saved is the logged contributions to date.
+    """The year's savings as a share of income. saved is the logged
+    contributions to date.
 
     take_home: saved / actual take-home pay.
     total: (saved + 401(k) + company match) / actual gross income, the whole
     share of pay that went into assets.
-    target_take_home, target_total: the same two from the Budget Yearly
-    column (its Total Savings, 401(k) and match over its take-home and gross).
     A rate whose figures the sheet doesn't have is left out."""
 
     def actual(key):
         return budget_items.get(key, (0.0, 0.0))[0]
 
-    def planned(key):
-        return budget_items.get(key, (0.0, 0.0))[1]
-
     retirement = actual("401k") + actual("401k_match")
-    planned_retirement = planned("401k") + planned("401k_match")
     rates = {}
     if actual("take_home"):
         rates["take_home"] = saved / actual("take_home")
     if actual("gross_income"):
         rates["total"] = (saved + retirement) / actual("gross_income")
-    if planned("take_home") and planned("total_savings"):
-        rates["target_take_home"] = planned("total_savings") / planned("take_home")
-    if planned("gross_income") and planned("total_savings"):
-        rates["target_total"] = (
-            planned("total_savings") + planned_retirement
-        ) / planned("gross_income")
     return rates
 
 
