@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.6.0"
-app = marimo.App(width="full")
+app = marimo.App(width="full", html_head_file="heartbeat_head.html")
 
 
 @app.cell
