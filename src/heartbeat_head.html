@@ -3,9 +3,9 @@
      gets no inbound request for 15 minutes, and an open websocket doesn't
      seem to count, which kills the kernel behind a page left on its own.
      Standalone `marimo run` has no /heartbeat route; the 404 is harmless. -->
-<!-- PWA: lets Chrome offer "Install app" (served unauthenticated by PasswordGate,
+<!-- PWA: marimo's own <link rel="manifest" href="./manifest.json"> is the one Chrome
+     reads, and PasswordGate answers it with src/pwa/manifest.webmanifest. Lets Chrome offer "Install app" (served unauthenticated by PasswordGate,
      since browsers fetch the manifest and icons without the login cookie). -->
-<link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0a0c0f">
 <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
 <script>

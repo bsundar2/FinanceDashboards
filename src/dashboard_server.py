@@ -36,6 +36,10 @@ HEARTBEAT_PATH = "/heartbeat"
 _PWA = _SRC / "pwa"
 PUBLIC_FILES = {
     "/manifest.webmanifest": ("manifest.webmanifest", b"application/manifest+json"),
+    # marimo's own page head already links ./manifest.json (first in the head, so
+    # Chrome uses it and ignores ours): answer that one with our manifest too
+    "/manifest.json": ("manifest.webmanifest", b"application/manifest+json"),
+    "/net-worth/manifest.json": ("manifest.webmanifest", b"application/manifest+json"),
     "/sw.js": ("sw.js", b"text/javascript"),
     "/pwa/icon-192.png": ("icon-192.png", b"image/png"),
     "/pwa/icon-512.png": ("icon-512.png", b"image/png"),
