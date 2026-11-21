@@ -147,6 +147,10 @@ class TestPwa:
             assert icon_response.status_code == 200
             assert icon_response.headers["content-type"] == "image/png"
 
+    def test_marimos_own_manifest_links_get_ours(self, client):
+        for path in ("/manifest.json", "/net-worth/manifest.json"):
+            assert client.get(path).json()["short_name"] == "Finance"
+
     def test_service_worker_is_public_and_never_cached(self, client):
         response = client.get("/sw.js")
         assert response.status_code == 200
@@ -159,5 +163,4 @@ class TestPwa:
 
     def test_notebooks_link_the_manifest_and_register_the_worker(self):
         head = (ds._SRC / "heartbeat_head.html").read_text()
-        assert 'rel="manifest"' in head
         assert 'register("/sw.js"' in head
