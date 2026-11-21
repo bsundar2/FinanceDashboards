@@ -72,7 +72,7 @@ def __(mo):
         step=500,
         value=5000,
     )
-    include_one_offs = mo.ui.checkbox(label="Include them")
+    include_one_offs = mo.ui.checkbox(label="Include them", value=True)
     emergency_months = mo.ui.number(start=1, stop=24, step=1, value=6)
     return emergency_months, include_one_offs, large_threshold, reload
 
@@ -156,7 +156,11 @@ def __(include_one_offs, large_threshold, mo, reload):
     mo.Html(f"""
     <div class="t-controls">
       <div>{reload}</div>
-      <div><span class="t-control-label">Show one-off expenses of at least ($) separately</span>{large_threshold} {include_one_offs}</div>
+      <div>
+        <span class="t-control-label">Show one-off expenses of at least ($) separately</span>
+        <span style="{'opacity: 0.35; pointer-events: none;' if include_one_offs.value else ''}">{large_threshold}</span>
+        {include_one_offs}
+      </div>
     </div>""")
     return
 
