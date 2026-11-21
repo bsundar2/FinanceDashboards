@@ -149,7 +149,7 @@ class TestPwa:
 
     def test_marimos_own_manifest_links_get_ours(self, client):
         for path in ("/manifest.json", "/net-worth/manifest.json"):
-            assert client.get(path).json()["short_name"] == "Finance"
+            assert client.get(path).json()["short_name"] == "FinDash"
 
     def test_service_worker_is_public_and_never_cached(self, client):
         response = client.get("/sw.js")

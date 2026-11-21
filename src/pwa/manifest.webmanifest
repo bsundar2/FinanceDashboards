@@ -1,6 +1,6 @@
 {
-  "name": "Finance dashboards",
-  "short_name": "Finance",
+  "name": "FinDash",
+  "short_name": "FinDash",
   "description": "Yearly overview and net worth dashboards",
   "start_url": "/",
   "scope": "/",

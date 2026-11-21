@@ -51,7 +51,7 @@ FAILED_LOGIN_DELAY_SECONDS = 1.0
 
 _LOGIN_PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Finance dashboards</title>
+<title>FinDash</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0a0c0f">
 <style>
@@ -65,7 +65,7 @@ _LOGIN_PAGE = """<!doctype html>
   .error {{ color: #ff4d6a; font-size: 0.85rem; }}
 </style></head>
 <body><form method="post" action="{action}">
-  <h1>⬡ Finance dashboards</h1>
+  <h1>⬡ FinDash</h1>
   <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
   {error}
   <button type="submit">Log in</button>
