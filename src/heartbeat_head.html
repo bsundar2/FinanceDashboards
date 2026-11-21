@@ -1,0 +1,18 @@
+<!-- Added to both notebooks' <head> (html_head_file). While a page is open it
+     pings the server every 4 minutes. Render's free plan stops a service that
+     gets no inbound request for 15 minutes, and an open websocket doesn't
+     seem to count, which kills the kernel behind a page left on its own.
+     Standalone `marimo run` has no /heartbeat route; the 404 is harmless. -->
+<!-- PWA: marimo's own <link rel="manifest" href="./manifest.json"> is the one Chrome
+     reads, and PasswordGate answers it with src/pwa/manifest.webmanifest. Lets Chrome offer "Install app" (served unauthenticated by PasswordGate,
+     since browsers fetch the manifest and icons without the login cookie). -->
+<meta name="theme-color" content="#0a0c0f">
+<link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(function () {});
+  }
+  setInterval(function () {
+    fetch("/heartbeat", { credentials: "same-origin", cache: "no-store" }).catch(function () {});
+  }, 4 * 60 * 1000);
+</script>
