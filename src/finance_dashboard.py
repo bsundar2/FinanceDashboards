@@ -242,22 +242,17 @@ def __(
     _match = budget_items.get("401k_match", (0.0, 0.0))[0]
     _rates = pf.savings_rates(budget_items, savings.sum())
 
-    def _rate_tile(key, target_key, label, sub):
+    def _rate_tile(key, label, sub):
         if key not in _rates:
             return ""
-        _target = _rates.get(target_key)
-        _cls = (
-            "amb" if _target is None else ("pos" if _rates[key] >= _target else "neg")
-        )
-        _vs = f" · plan {_target:.1%}" if _target is not None else ""
-        return stat_tile(label, f"{_rates[key]:.1%}", sub + _vs, _cls)
+        return stat_tile(label, f"{_rates[key]:.1%}", sub, "amb")
 
     # One output with the header above, so there's no cell gap between them
     mo.Html(header_html + f"""
     <div class="terminal">
       {kpi_row("Savings rate", [
-          _rate_tile("take_home", "target_take_home", "Of take-home pay", "logged contributions"),
-          _rate_tile("total", "target_total", "Of gross income", "contributions + 401(k) + match"),
+          _rate_tile("take_home", "Of take-home pay", "Take-Home Savings on the Budget tab"),
+          _rate_tile("total", "Of gross income", "Total Savings on the Budget tab"),
       ])}
       {kpi_row("Income &amp; savings", [
           _budget_tile("gross_income", "Gross income"),

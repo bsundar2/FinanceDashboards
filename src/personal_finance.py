@@ -206,6 +206,7 @@ BUDGET_ITEMS = {
     "401k": "401k contribution",
     "401k_match": "401k company match",
     "total_savings": "total savings",
+    "take_home_savings": "take-home savings",
 }
 
 
@@ -927,35 +928,32 @@ def allocation(
 
 
 def savings_rates(budget_items: dict, saved: float) -> dict[str, float]:
-    """The year's savings as a share of income, against the budget's own
-    plan. saved is the logged contributions to date.
+    """The year's savings as a share of income, as the Dashboard tab shows it.
 
-    take_home: saved / actual take-home pay.
-    total: (saved + 401(k) + company match) / actual gross income, the whole
-    share of pay that went into assets.
-    target_take_home, target_total: the same two from the Budget Yearly
-    column (its Total Savings, 401(k) and match over its take-home and gross).
+    take_home: the Budget tab's Take-Home Savings row over actual take-home
+    pay. saved, the logged contributions to date, stands in when the sheet
+    has no such row.
+    total: the Total Savings row (take-home savings plus what went to the
+    401(k)) over actual gross income; without that row, saved plus the
+    401(k) and company match.
     A rate whose figures the sheet doesn't have is left out."""
 
     def actual(key):
         return budget_items.get(key, (0.0, 0.0))[0]
 
-    def planned(key):
-        return budget_items.get(key, (0.0, 0.0))[1]
-
-    retirement = actual("401k") + actual("401k_match")
-    planned_retirement = planned("401k") + planned("401k_match")
+    take_home_savings = (
+        actual("take_home_savings") if "take_home_savings" in budget_items else saved
+    )
+    total_savings = (
+        actual("total_savings")
+        if "total_savings" in budget_items
+        else saved + actual("401k") + actual("401k_match")
+    )
     rates = {}
     if actual("take_home"):
-        rates["take_home"] = saved / actual("take_home")
+        rates["take_home"] = take_home_savings / actual("take_home")
     if actual("gross_income"):
-        rates["total"] = (saved + retirement) / actual("gross_income")
-    if planned("take_home") and planned("total_savings"):
-        rates["target_take_home"] = planned("total_savings") / planned("take_home")
-    if planned("gross_income") and planned("total_savings"):
-        rates["target_total"] = (
-            planned("total_savings") + planned_retirement
-        ) / planned("gross_income")
+        rates["total"] = total_savings / actual("gross_income")
     return rates
 
 
