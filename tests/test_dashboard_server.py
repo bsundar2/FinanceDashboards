@@ -132,3 +132,32 @@ def test_both_notebooks_load_the_heartbeat_script():
     assert ds.HEARTBEAT_PATH in head
     for notebook in ("finance_dashboard.py", "net_worth_dashboard.py"):
         assert 'html_head_file="heartbeat_head.html"' in (src / notebook).read_text()
+
+
+class TestPwa:
+    def test_manifest_and_icons_need_no_login(self, client):
+        response = client.get("/manifest.webmanifest")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/manifest+json")
+        manifest = response.json()
+        assert manifest["display"] == "standalone"
+        assert manifest["start_url"] == "/"
+        for icon in manifest["icons"]:
+            icon_response = client.get(icon["src"])
+            assert icon_response.status_code == 200
+            assert icon_response.headers["content-type"] == "image/png"
+
+    def test_service_worker_is_public_and_never_cached(self, client):
+        response = client.get("/sw.js")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/javascript")
+        assert response.headers["cache-control"] == "no-cache"
+
+    def test_every_public_file_exists(self):
+        for name, _ in ds.PUBLIC_FILES.values():
+            assert (ds._PWA / name).is_file()
+
+    def test_notebooks_link_the_manifest_and_register_the_worker(self):
+        head = (ds._SRC / "heartbeat_head.html").read_text()
+        assert 'rel="manifest"' in head
+        assert 'register("/sw.js"' in head

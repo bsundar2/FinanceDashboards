@@ -31,12 +31,25 @@ LOGIN_PATH = "/login"
 # Pinged by the open pages (src/heartbeat_head.html) so Render keeps the service
 # running; needs the login cookie like everything else
 HEARTBEAT_PATH = "/heartbeat"
+# PWA files, served without the login: browsers fetch the manifest and icons
+# without cookies, and none of it is personal. Maps URL path -> (file, type)
+_PWA = _SRC / "pwa"
+PUBLIC_FILES = {
+    "/manifest.webmanifest": ("manifest.webmanifest", b"application/manifest+json"),
+    "/sw.js": ("sw.js", b"text/javascript"),
+    "/pwa/icon-192.png": ("icon-192.png", b"image/png"),
+    "/pwa/icon-512.png": ("icon-512.png", b"image/png"),
+    "/pwa/icon-maskable-512.png": ("icon-maskable-512.png", b"image/png"),
+    "/pwa/apple-touch-icon.png": ("apple-touch-icon.png", b"image/png"),
+}
 # Slows down guessing; a person barely notices it on a typo
 FAILED_LOGIN_DELAY_SECONDS = 1.0
 
 _LOGIN_PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Finance dashboards</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0a0c0f">
 <style>
   body {{ margin: 0; min-height: 100vh; display: grid; place-items: center;
          background: #0a0c0f; color: #c8d0e0; font-family: 'IBM Plex Mono', monospace; }}
@@ -80,6 +93,14 @@ class PasswordGate:
             return
         if scope["type"] == "http" and scope["path"] == LOGIN_PATH:
             await self._login(scope, receive, send)
+            return
+        if scope["type"] == "http" and scope["path"] in PUBLIC_FILES:
+            name, content_type = PUBLIC_FILES[scope["path"]]
+            headers = [(b"content-type", content_type)]
+            if scope["path"] == "/sw.js":
+                # So a changed worker is picked up right away
+                headers.append((b"cache-control", b"no-cache"))
+            await self._respond(send, 200, (_PWA / name).read_bytes(), headers)
             return
         if self._authorized(scope):
             if scope["type"] == "http" and scope["path"] == HEARTBEAT_PATH:
