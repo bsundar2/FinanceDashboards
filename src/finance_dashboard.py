@@ -72,8 +72,9 @@ def __(mo):
         step=500,
         value=5000,
     )
+    include_one_offs = mo.ui.checkbox(label="Include them")
     emergency_months = mo.ui.number(start=1, stop=24, step=1, value=6)
-    return emergency_months, large_threshold, reload
+    return emergency_months, include_one_offs, large_threshold, reload
 
 
 @app.cell
@@ -151,19 +152,32 @@ def __(html, load_error, mo, pd, pf, spreadsheet_name, today, workbook):
 
 
 @app.cell
-def __(large_threshold, mo, reload):
+def __(include_one_offs, large_threshold, mo, reload):
     mo.Html(f"""
     <div class="t-controls">
       <div>{reload}</div>
-      <div><span class="t-control-label">Show one-off expenses of at least ($) separately</span>{large_threshold}</div>
+      <div><span class="t-control-label">Show one-off expenses of at least ($) separately</span>{large_threshold} {include_one_offs}</div>
     </div>""")
     return
 
 
 @app.cell
-def __(budget_items, budgets, debt, expenses, large_threshold, months, net_worth, pf):
+def __(
+    budget_items,
+    budgets,
+    debt,
+    expenses,
+    include_one_offs,
+    large_threshold,
+    months,
+    net_worth,
+    pf,
+):
     # ── Everything the sections below draw ──────────────────────────────────
     everyday, one_offs = pf.split_large(expenses, large_threshold.value)
+    if include_one_offs.value:
+        # Checked: every expense is charted and counted, one-offs included
+        everyday = expenses
     by_group = pf.monthly_by_group(everyday, budgets, months)
     monthly_spend = by_group.sum(axis=1)
     # What you logged as saved each month: the Net Worth tab's contributions
@@ -177,8 +191,20 @@ def __(budget_items, budgets, debt, expenses, large_threshold, months, net_worth
 
 
 @app.cell
-def __(mo, money, monthly_spend, net_worth, pf, savings, spreadsheet_name, html, year):
+def __(
+    include_one_offs,
+    mo,
+    money,
+    monthly_spend,
+    net_worth,
+    pf,
+    savings,
+    spreadsheet_name,
+    html,
+    year,
+):
     # ── Header and KPIs ─────────────────────────────────────────────────────
+    _oo = "incl." if include_one_offs.value else "excl."
     _spent = monthly_spend.sum()
     _saved = savings.sum()
     _nw = net_worth[pf.NET_WORTH]
@@ -197,7 +223,7 @@ def __(mo, money, monthly_spend, net_worth, pf, savings, spreadsheet_name, html,
         </div>
       </div>
       <div class="t-kpis">
-        {_kpi("Spent (your share)", money(_spent), f"{money(_spent / len(monthly_spend))} / month · excl. one-offs", "amb")}
+        {_kpi("Spent (your share)", money(_spent), f"{money(_spent / len(monthly_spend))} / month · {_oo} one-offs", "amb")}
         {_kpi("Saved", money(_saved), f"{money(_saved / len(savings))} / month · logged contributions", "pos" if _saved >= 0 else "neg")}
         {_kpi("Net worth", money(_nw.iloc[-1]), f"as of {_nw.index[-1].strftime('%b')} (live)", "pos")}
         {_kpi("Net worth change", money(_nw_change, signed=True), f"since {_nw.index[0].strftime('%b')} opening", "pos" if _nw_change >= 0 else "neg")}
@@ -307,6 +333,7 @@ def __(PALETTE, ShareBar, by_group, mo, money, month_labels, stacked_bars_svg):
 
 @app.cell
 def __(
+    include_one_offs,
     PALETTE,
     budgets,
     by_group,
@@ -327,6 +354,7 @@ def __(
     year,
 ):
     # ── The selected group's sub-categories, on demand ─────────────────────
+    _oo = "incl." if include_one_offs.value else "excl."
     _group = group_bar.value["selected"]
     mo.stop(not _group)
     _df = pf.monthly_by_category(everyday, budgets, months, _group)
@@ -364,9 +392,9 @@ def __(
       <div class="t-section">{html.escape(_group)} · {money(_total)} · {money(_total / len(by_group))} / month</div>
       {legend([html.escape(c) for c in _df.columns] + [f"{html.escape(_group)} total"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
-      {fold(f"{len(_rows)} sub-categories", f"{money(_total)} excl. one-offs", table(["Sub-category", "Spent (excl. one-offs)", "Per month", "Spent (all)", "Budget to date", "Over / under"], _rows))}
+      {fold(f"{len(_rows)} sub-categories", f"{money(_total)} {_oo} one-offs", table(["Sub-category", f"Spent ({_oo} one-offs)", "Per month", "Spent (all)", "Budget to date", "Over / under"], _rows))}
       <div class="t-note">Sub-categories are the Expense Log's categories, grouped as on the Monthly Expenses tab;
-      beyond eight the smallest are summed into Other. The chart leaves out one-offs, like the one above; the
+      beyond eight the smallest are summed into Other. The chart {"counts" if include_one_offs.value else "leaves out"} one-offs, like the one above; the
       last three columns count them, as the budget tables below do.</div>
     </div>""")
     return
@@ -374,7 +402,19 @@ def __(
 
 @app.cell
 def __(
-    budgets, everyday, expenses, fold, html, mo, money, one_offs, pf, table, today, year
+    include_one_offs,
+    budgets,
+    everyday,
+    expenses,
+    fold,
+    html,
+    mo,
+    money,
+    one_offs,
+    pf,
+    table,
+    today,
+    year,
 ):
     # ── Budget, merchants and one-offs ──────────────────────────────────────
 
@@ -429,11 +469,11 @@ def __(
           {fold(f"{len(_merchants)} merchants", f"{money(_merchants['total'].sum())} total", table(["Description", "Your share", "Count"], _merchant_rows))}
         </div>
         <div>
-          <div class="t-section">One-offs left out of the charts ({len(one_offs)})</div>
+          <div class="t-section">One-offs {"counted in" if include_one_offs.value else "left out of"} the charts ({len(one_offs)})</div>
           {fold(f"{len(one_offs)} expenses", f"{money(one_offs['my_share'].sum())} net", table(["Date", "Description", "Category", "Your share"], _one_off_rows))}
         </div>
       </div>
-      <div class="t-note">Spent includes one-offs. Budget to date is each category's monthly budget from the Monthly
+      <div class="t-note">Spent includes one-offs, whether or not the box is ticked. Budget to date is each category's monthly budget from the Monthly
       Expenses tab times the months elapsed, with the current month prorated by day; the sheet's Variance column
       compares against the whole year's budget instead. Bills dated after today aren't counted yet.</div>
     </div>""")
@@ -441,7 +481,19 @@ def __(
 
 
 @app.cell
-def __(everyday, expenses, fold, html, mo, money, pf, previous_expenses, table, today):
+def __(
+    include_one_offs,
+    everyday,
+    expenses,
+    fold,
+    html,
+    mo,
+    money,
+    pf,
+    previous_expenses,
+    table,
+    today,
+):
     # ── Biggest changes in spending: vs recent months, and vs last year ─────
     _movers, _month, _n = pf.category_movers(everyday, today)
 
@@ -485,7 +537,7 @@ def __(everyday, expenses, fold, html, mo, money, pf, previous_expenses, table, 
     <div class="terminal">
       <div class="t-section">Where spending moved</div>
       {"".join(_blocks)}
-      <div class="t-note">Your share of each sub-category, one-offs left out, red where spending rose. The month
+      <div class="t-note">Your share of each sub-category, one-offs {"counted" if include_one_offs.value else "left out"}, red where spending rose. The month
       comparison uses the last complete month; a sub-category with no spending in the earlier months shows as new.
       Last year comes from the previous year's budget sheet (its name with the year changed), shown when it can be read.</div>
     </div>""")
@@ -617,6 +669,7 @@ def __(
 
 @app.cell
 def __(
+    include_one_offs,
     emergency_months,
     fold,
     kpi_row,
@@ -630,6 +683,7 @@ def __(
     table,
     today,
 ):
+    _oo = "incl." if include_one_offs.value else "excl."
     # ── 4. Liquidity and runway ─────────────────────────────────────────────
     _spend = pf.average_monthly_spend(monthly_spend, today)
     _liq = pf.liquidity(net_worth, _spend)
@@ -661,15 +715,14 @@ def __(
     <div class="terminal">
       <div class="t-section">4 · Liquidity and runway</div>
       {kpi_row("At today's spending", [
-          kpi_tile("Spending / month", _spend, "average of complete months · excl. one-offs", "amb"),
+          kpi_tile("Spending / month", _spend, f"average of complete months · {_oo} one-offs", "amb"),
           stat_tile("Cash runway", f"{_liq['runway_cash']:.1f} mo" if "runway_cash" in _liq else "–", "cash &amp; savings alone", "pos"),
           stat_tile("Cash + investments", f"{_liq['runway_liquid']:.1f} mo" if "runway_liquid" in _liq else "–", "if you sold the taxable accounts", "pos"),
           kpi_tile("Emergency fund " + ("shortfall" if _short else "surplus"), _fund["surplus"], f"cash against {emergency_months.value:g} months of spending ({money(_fund['target'])})"),
       ])}
       <div class="t-controls"><div><span class="t-control-label">Months of spending to keep in cash</span>{emergency_months}</div></div>
       {fold(f"{len(_rows)} groups", f"{money(_assets)} in assets", table(["Where it sits", "How liquid", "Balance", "Share of assets", "Months of spending"], _rows))}
-      <div class="t-note">Spending is the average of the complete months so far, one-offs left out, so a down payment
-      doesn't shrink your runway. Real Estate is the sheet's subtotal, net of the mortgage where the sheet subtracts it there.</div>
+      <div class="t-note">Spending is the average of the complete months so far, one-offs {"counted, so a down payment shortens your runway" if include_one_offs.value else "left out, so a down payment doesn't shrink your runway"}. Real Estate is the sheet's subtotal, net of the mortgage where the sheet subtracts it there.</div>
     </div>""")
     return
 
