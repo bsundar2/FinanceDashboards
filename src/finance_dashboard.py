@@ -273,9 +273,11 @@ def __(
 @app.cell
 def __(
     budget_items,
+    dividends,
     header_html,
     kpi_row,
     kpi_tile,
+    months,
     mo,
     money,
     net_worth,
@@ -303,6 +305,17 @@ def __(
             else ""
         )
 
+    # Dividends actually paid this year, from the ledger. A missing or empty
+    # ledger leaves the tile out rather than showing an estimate in its place.
+    _paid = (
+        pf.dividends_by_month(dividends, months).sum().sum()
+        if dividends is not None and not dividends.empty
+        else None
+    )
+    _dividend_tile = (
+        kpi_tile("Dividends", _paid, "paid", "pos") if _paid is not None else ""
+    )
+
     _match = budget_items.get("401k_match", (0.0, 0.0))[0]
     _rates = pf.savings_rates(budget_items, savings.sum())
 
@@ -325,7 +338,7 @@ def __(
           _budget_tile("total_savings", "Total savings"),
       ])}
       {kpi_row("Investment income", [
-          _logged("dividends", "Dividends"),
+          _dividend_tile,
           _logged("interest", "Interest"),
           _logged("stock_gain", "Realized gain/loss"),
           kpi_tile("Market change", _market, f"{_share:.1%} of the net worth change · after contributions and 401(k)"),
@@ -703,11 +716,9 @@ def __(
       {legend(["You put in", "Debt change", "401(k) + match (even split)", "Market & other", "Total change"], _change_colors + ["#e8edf5"])}
       <div class="t-chart">{_change_chart}</div>
       {fold(f"{len(changes)} months", f"{money(changes['change'].sum(), signed=True)} change", table(["Month", "Change", "You put in", "Debt change", "401(k) + match", "Market & other"], _rows), "pos" if changes["change"].sum() >= 0 else "neg")}
-      <div class="t-note">Starts in Feb: January is the opening balance, and there is no December to measure its change against.
-      "You put in" is the savings you logged for the month. "Debt change" is how much your debt moved since the month before:
-      positive is paid down, negative is new borrowing. Only a yearly figure is available for the 401(k) and its match, so that part is
-      spread evenly over the months. "Market &amp; other" is the rest: market moves, home value, and cash left over from pay.
-      The current month keeps changing until it is finalized at month end.</div>
+      <div class="t-note">Starts in Feb, since January is the opening balance. Debt change: positive is paid down,
+      negative is new borrowing. The 401(k) and match are spread evenly, as only a yearly figure is available.
+      Market &amp; other is everything else, including home value and leftover cash. The current month isn't final.</div>
       {_borrowed_note}
     </div>""")
     return
@@ -788,6 +799,7 @@ def __(
     month_labels,
     months,
     pf,
+    savings_log,
     stacked_bars_svg,
     stat_tile,
     table,
@@ -825,6 +837,7 @@ def __(
       <div class="t-section">5 · Dividend income</div>
       {kpi_row("From the dividends ledger", [
           kpi_tile("This year", _total, f"{money(_total / len(months))} / month so far", "pos"),
+          kpi_tile("Estimated", savings_log["dividends"], "your logged estimate", "amb") if "dividends" in savings_log else "",
           kpi_tile("Last 12 months", _rate["last_12_months"], "all accounts in the ledger", "pos") if _rate else "",
           kpi_tile("Yearly pace", _rate["per_year"], (f"scaled up from {_rate['months_of_history']:.0f} months of history" if _rate["estimated"] else "the last 12 months"), "amb") if _rate else "",
       ])}
