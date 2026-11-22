@@ -313,9 +313,7 @@ def __(
         else None
     )
     _dividend_tile = (
-        kpi_tile("Dividends", _paid, "paid year to date", "pos")
-        if _paid is not None
-        else ""
+        kpi_tile("Dividends", _paid, "paid", "pos") if _paid is not None else ""
     )
 
     _match = budget_items.get("401k_match", (0.0, 0.0))[0]
