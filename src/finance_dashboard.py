@@ -102,7 +102,11 @@ def __(pf, reload, spreadsheet_name, today, load_error):
         dividends_error = None
     except Exception as e:
         dividends, dividends_error = None, f"{type(e).__name__}: {e}"
-    return dividends, dividends_error, previous_expenses
+    try:
+        projected_dividends = pf.load_projected_dividends()
+    except Exception:
+        projected_dividends = None
+    return dividends, dividends_error, previous_expenses, projected_dividends
 
 
 @app.cell
@@ -799,7 +803,7 @@ def __(
     month_labels,
     months,
     pf,
-    savings_log,
+    projected_dividends,
     stacked_bars_svg,
     stat_tile,
     table,
@@ -837,7 +841,7 @@ def __(
       <div class="t-section">5 · Dividend income</div>
       {kpi_row("From the dividends ledger", [
           kpi_tile("This year", _total, f"{money(_total / len(months))} / month so far", "pos"),
-          kpi_tile("Estimated", savings_log["dividends"], "your logged estimate", "amb") if "dividends" in savings_log else "",
+          kpi_tile("Projected yearly", projected_dividends, "dividend rates × shares held", "amb") if projected_dividends else "",
           kpi_tile("Last 12 months", _rate["last_12_months"], "all accounts in the ledger", "pos") if _rate else "",
           kpi_tile("Yearly pace", _rate["per_year"], (f"scaled up from {_rate['months_of_history']:.0f} months of history" if _rate["estimated"] else "the last 12 months"), "amb") if _rate else "",
       ])}
