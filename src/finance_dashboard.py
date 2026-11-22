@@ -66,7 +66,9 @@ def __(mo):
     reload = mo.ui.button(
         label="↻ Reload from Sheets", value=0, on_click=lambda n: n + 1
     )
-    include_one_offs = mo.ui.checkbox(label="Include them", value=True)
+    include_one_offs = mo.ui.checkbox(
+        label="Include one-offs in the charts", value=True
+    )
     emergency_months = mo.ui.number(start=1, stop=24, step=1, value=6)
     return emergency_months, include_one_offs, reload
 
@@ -146,11 +148,10 @@ def __(html, load_error, mo, pd, pf, spreadsheet_name, today, workbook):
 
 
 @app.cell
-def __(include_one_offs, mo, reload):
+def __(mo, reload):
     mo.Html(f"""
     <div class="t-controls">
       <div>{reload}</div>
-      <div>{include_one_offs}</div>
     </div>""")
     return
 
@@ -183,6 +184,7 @@ def __(include_one_offs, mo, one_off_picker):
     mo.Html(f"""
     <div class="t-controls">
       <div style="flex: 1; min-width: 0;">
+        <div>{include_one_offs}</div>
         <span class="t-control-label">Mark specific expenses as one-offs, to leave them out of the charts</span>
         <div style="{'opacity: 0.35; pointer-events: none;' if include_one_offs.value else ''}">{one_off_picker}</div>
       </div>
@@ -701,11 +703,11 @@ def __(
       {legend(["You put in", "Debt change", "401(k) + match (even split)", "Market & other", "Total change"], _change_colors + ["#e8edf5"])}
       <div class="t-chart">{_change_chart}</div>
       {fold(f"{len(changes)} months", f"{money(changes['change'].sum(), signed=True)} change", table(["Month", "Change", "You put in", "Debt change", "401(k) + match", "Market & other"], _rows), "pos" if changes["change"].sum() >= 0 else "neg")}
-      <div class="t-note">"You put in" is the Monthly Savings Contributions rows at the bottom of the Net Worth tab.
-      "Debt change" is how much the debt moved since the month before (the Liabilities subtotal and any mortgage
-      row): positive is paid down, negative is new borrowing. The sheet has only a yearly figure for the 401(k) and its match, so that part is spread evenly over the
-      months. "Market &amp; other" is the rest: market moves, home value, and cash left over from pay.
-      The current month keeps changing until you paste its values at month end.</div>
+      <div class="t-note">Starts in Feb: January is the opening balance, and there is no December to measure its change against.
+      "You put in" is the savings you logged for the month. "Debt change" is how much your debt moved since the month before:
+      positive is paid down, negative is new borrowing. Only a yearly figure is available for the 401(k) and its match, so that part is
+      spread evenly over the months. "Market &amp; other" is the rest: market moves, home value, and cash left over from pay.
+      The current month keeps changing until it is finalized at month end.</div>
       {_borrowed_note}
     </div>""")
     return
