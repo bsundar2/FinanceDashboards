@@ -66,7 +66,7 @@ def __(mo):
     reload = mo.ui.button(
         label="↻ Reload from Sheets", value=0, on_click=lambda n: n + 1
     )
-    include_one_offs = mo.ui.checkbox(label="Include them", value=True)
+    include_one_offs = mo.ui.checkbox(label="Include one-offs in the charts", value=True)
     emergency_months = mo.ui.number(start=1, stop=24, step=1, value=6)
     return emergency_months, include_one_offs, reload
 
@@ -146,11 +146,10 @@ def __(html, load_error, mo, pd, pf, spreadsheet_name, today, workbook):
 
 
 @app.cell
-def __(include_one_offs, mo, reload):
+def __(mo, reload):
     mo.Html(f"""
     <div class="t-controls">
       <div>{reload}</div>
-      <div>{include_one_offs}</div>
     </div>""")
     return
 
@@ -183,6 +182,7 @@ def __(include_one_offs, mo, one_off_picker):
     mo.Html(f"""
     <div class="t-controls">
       <div style="flex: 1; min-width: 0;">
+        <div>{include_one_offs}</div>
         <span class="t-control-label">Mark specific expenses as one-offs, to leave them out of the charts</span>
         <div style="{'opacity: 0.35; pointer-events: none;' if include_one_offs.value else ''}">{one_off_picker}</div>
       </div>
