@@ -840,6 +840,25 @@ class TestNetWorthChangesAttribution:
         assert list(parts) == list(changes["change"])
 
 
+class TestBorrowingMonths:
+    def test_flags_big_rises_in_debt_only(self):
+        months = pd.period_range("2026-02", periods=4, freq="M")
+        changes = pd.DataFrame(
+            {"debt": [-748_297.0, 1_200.0, -3_000.0, -25_000.0]}, index=months
+        )
+
+        assert pf.borrowing_months(changes) == [
+            (months[0], 748_297.0),
+            (months[3], 25_000.0),
+        ]
+
+    def test_none_when_debt_only_falls(self):
+        months = pd.period_range("2026-02", periods=2, freq="M")
+        changes = pd.DataFrame({"debt": [500.0, 700.0]}, index=months)
+
+        assert pf.borrowing_months(changes) == []
+
+
 class TestSavingsRates:
     ITEMS = {
         "gross_income": (100000, 120000),

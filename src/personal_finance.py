@@ -468,9 +468,9 @@ def net_worth_changes(
 ) -> pd.DataFrame:
     """Each month's change in net worth (from the second month on, since the
     first is the opening balance), split into what you put in (the
-    contributions logged that month), debt paid down (debt is the total debt
-    balance by month, negative, from debt_balance(): it rising towards zero is
-    principal paid), your 401(k) contributions and match (retirement_total
+    contributions logged that month), the debt change (debt is the total debt
+    balance by month, negative, from debt_balance(): rising towards zero is
+    principal paid, falling is new borrowing), your 401(k) contributions and match (retirement_total
     for the period, split evenly, since the sheet only has the yearly figure)
     and everything else (markets, home value, cash left over)."""
     change = net_worth[NET_WORTH].diff().iloc[1:]
@@ -490,6 +490,20 @@ def net_worth_changes(
             "market": change - saved - paid_down - retirement,
         }
     )
+
+
+# A month's debt rising by this much counts as new borrowing worth flagging
+BORROWING_FLAG = 25_000
+
+
+def borrowing_months(
+    changes: pd.DataFrame, minimum: float = BORROWING_FLAG
+) -> list[tuple[pd.Period, float]]:
+    """The months of net_worth_changes() where the debt rose by at least
+    minimum (a new mortgage, say), as (month, amount borrowed). What the
+    money bought lands in "market", so these months are called out."""
+    rose = changes["debt"] <= -minimum
+    return [(month, -changes.loc[month, "debt"]) for month in changes.index[rose]]
 
 
 def debt_balance(values: list[list], months: pd.PeriodIndex) -> pd.Series:
