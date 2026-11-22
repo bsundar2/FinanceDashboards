@@ -66,14 +66,9 @@ def __(mo):
     reload = mo.ui.button(
         label="↻ Reload from Sheets", value=0, on_click=lambda n: n + 1
     )
-    large_threshold = mo.ui.number(
-        start=500,
-        stop=1_000_000,
-        step=500,
-        value=5000,
-    )
+    include_one_offs = mo.ui.checkbox(label="Include them", value=True)
     emergency_months = mo.ui.number(start=1, stop=24, step=1, value=6)
-    return emergency_months, large_threshold, reload
+    return emergency_months, include_one_offs, reload
 
 
 @app.cell
@@ -151,19 +146,67 @@ def __(html, load_error, mo, pd, pf, spreadsheet_name, today, workbook):
 
 
 @app.cell
-def __(large_threshold, mo, reload):
+def __(include_one_offs, mo, reload):
     mo.Html(f"""
     <div class="t-controls">
       <div>{reload}</div>
-      <div><span class="t-control-label">Show one-off expenses of at least ($) separately</span>{large_threshold}</div>
+      <div>{include_one_offs}</div>
     </div>""")
     return
 
 
 @app.cell
-def __(budget_items, budgets, debt, expenses, large_threshold, months, net_worth, pf):
+def __(expenses, mo, money, pf):
+    # The biggest expenses to pick one-offs from. Created here, apart from the
+    # cell that draws it, so ticking the box below doesn't reset the picks.
+    _candidates = pf.one_off_candidates(expenses)
+    _labels = {}
+    for _row in _candidates.itertuples():
+        _label = f"{_row.date:%Y-%m-%d} · {_row.description} · {_row.category} · {money(_row.my_share)}"
+        while _label in _labels:
+            _label += " "
+        _labels[_label] = _row.key
+    # max_selections keeps marimo from offering "Select all", which would mark
+    # every candidate as a one-off in one click
+    one_off_picker = mo.ui.multiselect(
+        options=_labels,
+        label="",
+        full_width=True,
+        max_selections=max(len(_labels), 1),
+    )
+    return (one_off_picker,)
+
+
+@app.cell
+def __(include_one_offs, mo, one_off_picker):
+    mo.stop(not one_off_picker.options)
+    mo.Html(f"""
+    <div class="t-controls">
+      <div style="flex: 1; min-width: 0;">
+        <span class="t-control-label">Mark specific expenses as one-offs, to leave them out of the charts</span>
+        <div style="{'opacity: 0.35; pointer-events: none;' if include_one_offs.value else ''}">{one_off_picker}</div>
+      </div>
+    </div>""")
+    return
+
+
+@app.cell
+def __(
+    budget_items,
+    budgets,
+    debt,
+    expenses,
+    include_one_offs,
+    months,
+    net_worth,
+    one_off_picker,
+    pf,
+):
     # ── Everything the sections below draw ──────────────────────────────────
-    everyday, one_offs = pf.split_large(expenses, large_threshold.value)
+    everyday, one_offs = pf.split_marked(expenses, one_off_picker.value)
+    if include_one_offs.value:
+        # Checked: every expense is charted and counted, one-offs included
+        everyday = expenses
     by_group = pf.monthly_by_group(everyday, budgets, months)
     monthly_spend = by_group.sum(axis=1)
     # What you logged as saved each month: the Net Worth tab's contributions
@@ -177,10 +220,29 @@ def __(budget_items, budgets, debt, expenses, large_threshold, months, net_worth
 
 
 @app.cell
-def __(mo, money, monthly_spend, net_worth, pf, savings, spreadsheet_name, html, year):
+def __(
+    budget_items,
+    include_one_offs,
+    mo,
+    money,
+    monthly_spend,
+    net_worth,
+    pf,
+    savings,
+    spreadsheet_name,
+    html,
+    year,
+):
     # ── Header and KPIs ─────────────────────────────────────────────────────
+    _oo = "incl." if include_one_offs.value else "excl."
     _spent = monthly_spend.sum()
     _saved = savings.sum()
+    # Like the Total savings tile: what the Budget tab plans for the year
+    _saved_sub = (
+        f"{money(budget_items['take_home_savings'][1])} budgeted"
+        if "take_home_savings" in budget_items
+        else f"{money(_saved / len(savings))} / month · logged contributions"
+    )
     _nw = net_worth[pf.NET_WORTH]
     _nw_change = _nw.iloc[-1] - _nw.iloc[0]
 
@@ -197,10 +259,10 @@ def __(mo, money, monthly_spend, net_worth, pf, savings, spreadsheet_name, html,
         </div>
       </div>
       <div class="t-kpis">
-        {_kpi("Spent (your share)", money(_spent), f"{money(_spent / len(monthly_spend))} / month · excl. one-offs", "amb")}
-        {_kpi("Saved", money(_saved), f"{money(_saved / len(savings))} / month · logged contributions", "pos" if _saved >= 0 else "neg")}
-        {_kpi("Net worth", money(_nw.iloc[-1]), f"as of {_nw.index[-1].strftime('%b')} (live)", "pos")}
-        {_kpi("Net worth change", money(_nw_change, signed=True), f"since {_nw.index[0].strftime('%b')} opening", "pos" if _nw_change >= 0 else "neg")}
+        {_kpi("Spent (your share)", money(_spent), f"{money(_spent / len(monthly_spend))} / month · {_oo} one-offs", "amb")}
+        {_kpi("Take-home savings", money(_saved), _saved_sub, "pos" if _saved >= 0 else "neg")}
+        {_kpi("Net worth", money(_nw.iloc[-1]), f"as of {_nw.index[-1].strftime('%b')}", "pos")}
+        {_kpi("Net worth change", money(_nw_change, signed=True), "", "pos" if _nw_change >= 0 else "neg")}
       </div>
     </div>"""
     return (header_html,)
@@ -242,22 +304,17 @@ def __(
     _match = budget_items.get("401k_match", (0.0, 0.0))[0]
     _rates = pf.savings_rates(budget_items, savings.sum())
 
-    def _rate_tile(key, target_key, label, sub):
+    def _rate_tile(key, label, sub):
         if key not in _rates:
             return ""
-        _target = _rates.get(target_key)
-        _cls = (
-            "amb" if _target is None else ("pos" if _rates[key] >= _target else "neg")
-        )
-        _vs = f" · plan {_target:.1%}" if _target is not None else ""
-        return stat_tile(label, f"{_rates[key]:.1%}", sub + _vs, _cls)
+        return stat_tile(label, f"{_rates[key]:.1%}", sub, "amb")
 
     # One output with the header above, so there's no cell gap between them
     mo.Html(header_html + f"""
     <div class="terminal">
       {kpi_row("Savings rate", [
-          _rate_tile("take_home", "target_take_home", "Of take-home pay", "logged contributions"),
-          _rate_tile("total", "target_total", "Of gross income", "contributions + 401(k) + match"),
+          _rate_tile("take_home", "Of take-home pay", "Take-Home Savings on the Budget tab"),
+          _rate_tile("total", "Of gross income", "Total Savings on the Budget tab"),
       ])}
       {kpi_row("Income &amp; savings", [
           _budget_tile("gross_income", "Gross income"),
@@ -312,6 +369,7 @@ def __(PALETTE, ShareBar, by_group, mo, money, month_labels, stacked_bars_svg):
 
 @app.cell
 def __(
+    include_one_offs,
     PALETTE,
     budgets,
     by_group,
@@ -332,6 +390,7 @@ def __(
     year,
 ):
     # ── The selected group's sub-categories, on demand ─────────────────────
+    _oo = "incl." if include_one_offs.value else "excl."
     _group = group_bar.value["selected"]
     mo.stop(not _group)
     _df = pf.monthly_by_category(everyday, budgets, months, _group)
@@ -369,9 +428,9 @@ def __(
       <div class="t-section">{html.escape(_group)} · {money(_total)} · {money(_total / len(by_group))} / month</div>
       {legend([html.escape(c) for c in _df.columns] + [f"{html.escape(_group)} total"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
-      {fold(f"{len(_rows)} sub-categories", f"{money(_total)} excl. one-offs", table(["Sub-category", "Spent (excl. one-offs)", "Per month", "Spent (all)", "Budget to date", "Over / under"], _rows))}
+      {fold(f"{len(_rows)} sub-categories", f"{money(_total)} {_oo} one-offs", table(["Sub-category", f"Spent ({_oo} one-offs)", "Per month", "Spent (all)", "Budget to date", "Over / under"], _rows))}
       <div class="t-note">Sub-categories are the Expense Log's categories, grouped as on the Monthly Expenses tab;
-      beyond eight the smallest are summed into Other. The chart leaves out one-offs, like the one above; the
+      beyond eight the smallest are summed into Other. The chart {"counts" if include_one_offs.value else "leaves out"} one-offs, like the one above; the
       last three columns count them, as the budget tables below do.</div>
     </div>""")
     return
@@ -379,7 +438,19 @@ def __(
 
 @app.cell
 def __(
-    budgets, everyday, expenses, fold, html, mo, money, one_offs, pf, table, today, year
+    include_one_offs,
+    budgets,
+    everyday,
+    expenses,
+    fold,
+    html,
+    mo,
+    money,
+    one_offs,
+    pf,
+    table,
+    today,
+    year,
 ):
     # ── Budget, merchants and one-offs ──────────────────────────────────────
 
@@ -434,11 +505,11 @@ def __(
           {fold(f"{len(_merchants)} merchants", f"{money(_merchants['total'].sum())} total", table(["Description", "Your share", "Count"], _merchant_rows))}
         </div>
         <div>
-          <div class="t-section">One-offs left out of the charts ({len(one_offs)})</div>
+          <div class="t-section">One-offs {"counted in" if include_one_offs.value else "left out of"} the charts ({len(one_offs)})</div>
           {fold(f"{len(one_offs)} expenses", f"{money(one_offs['my_share'].sum())} net", table(["Date", "Description", "Category", "Your share"], _one_off_rows))}
         </div>
       </div>
-      <div class="t-note">Spent includes one-offs. Budget to date is each category's monthly budget from the Monthly
+      <div class="t-note">Spent includes one-offs, whether or not the box is ticked. Budget to date is each category's monthly budget from the Monthly
       Expenses tab times the months elapsed, with the current month prorated by day; the sheet's Variance column
       compares against the whole year's budget instead. Bills dated after today aren't counted yet.</div>
     </div>""")
@@ -446,7 +517,19 @@ def __(
 
 
 @app.cell
-def __(everyday, expenses, fold, html, mo, money, pf, previous_expenses, table, today):
+def __(
+    include_one_offs,
+    everyday,
+    expenses,
+    fold,
+    html,
+    mo,
+    money,
+    pf,
+    previous_expenses,
+    table,
+    today,
+):
     # ── Biggest changes in spending: vs recent months, and vs last year ─────
     _movers, _month, _n = pf.category_movers(everyday, today)
 
@@ -490,7 +573,7 @@ def __(everyday, expenses, fold, html, mo, money, pf, previous_expenses, table, 
     <div class="terminal">
       <div class="t-section">Where spending moved</div>
       {"".join(_blocks)}
-      <div class="t-note">Your share of each sub-category, one-offs left out, red where spending rose. The month
+      <div class="t-note">Your share of each sub-category, one-offs {"counted" if include_one_offs.value else "left out"}, red where spending rose. The month
       comparison uses the last complete month; a sub-category with no spending in the earlier months shows as new.
       Last year comes from the previous year's budget sheet (its name with the year changed), shown when it can be read.</div>
     </div>""")
@@ -545,11 +628,11 @@ def __(
     mo.Html(f"""
     <div class="terminal">
       <div class="t-section">2 · Savings by month</div>
-      {legend([html.escape(b) for b in _names] + ["Total saved"], _colors + ["#e8edf5"])}
+      {legend([html.escape(b) for b in _names] + ["Take-home savings"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
-      {fold(f"{len(savings)} months · {len(_names)} buckets", f"{money(_total)} saved", table(["Month", *[html.escape(b) for b in _names], "Total", "Year to date"], _rows), "pos" if _total >= 0 else "neg")}
-      <div class="t-note">Saved is the Monthly Savings Contributions rows at the bottom of the Net Worth tab, one bucket
-      per row, the same figure as the Budget tab's Take-Home Savings. Beyond eight buckets the smallest are summed into
+      {fold(f"{len(savings)} months · {len(_names)} buckets", f"{money(_total)} take-home savings", table(["Month", *[html.escape(b) for b in _names], "Total", "Year to date"], _rows), "pos" if _total >= 0 else "neg")}
+      <div class="t-note">Take-home savings is the Monthly Savings Contributions rows at the bottom of the Net Worth tab, one bucket
+      per row, the same figure as the Budget tab's Take-Home Savings, so without the 401(k). Beyond eight buckets the smallest are summed into
       Other, and a bar below zero is money taken out. It's what you logged as put away, not take-home minus spending,
       so a big purchase paid from savings, like a down payment, doesn't lower it.</div>
     </div>""")
@@ -584,16 +667,17 @@ def __(
         [m.strftime("%b") for m in changes.index],
         {
             "You put in": list(changes["saved"]),
-            "Debt paid down": list(changes["debt"]),
+            "Debt change": list(changes["debt"]),
             "401(k) + match (even split)": list(changes["retirement"]),
             "Market & other": list(changes["market"]),
         },
         _change_colors,
         line=list(changes["change"]),
     )
+    _borrowed = dict(pf.borrowing_months(changes))
     _rows = [
         [
-            (m.strftime("%b"), "tk"),
+            (m.strftime("%b") + (" †" if m in _borrowed else ""), "tk"),
             (money(r.change, signed=True), "pos" if r.change >= 0 else "neg"),
             (money(r.saved, signed=True), "pos" if r.saved >= 0 else "neg"),
             (money(r.debt, signed=True), "pos" if r.debt >= 0 else "neg"),
@@ -602,26 +686,34 @@ def __(
         ]
         for m, r in zip(changes.index, changes.itertuples())
     ]
+    _borrowed_note = "".join(
+        f"""<div class="t-note">† {m.strftime("%b")}: your debt rose by {money(amount)}, new borrowing.
+        If it paid for something, like a home, that asset's value is in "Market &amp; other" the same
+        month, so that figure isn't a market gain.</div>"""
+        for m, amount in _borrowed.items()
+    )
     mo.Html(f"""
     <div class="terminal">
       <div class="t-section">3 · Net worth by month</div>
       {legend(_components + ["Net worth"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       <div class="t-section">Where each month's change came from</div>
-      {legend(["You put in", "Debt paid down", "401(k) + match (even split)", "Market & other", "Total change"], _change_colors + ["#e8edf5"])}
+      {legend(["You put in", "Debt change", "401(k) + match (even split)", "Market & other", "Total change"], _change_colors + ["#e8edf5"])}
       <div class="t-chart">{_change_chart}</div>
-      {fold(f"{len(changes)} months", f"{money(changes['change'].sum(), signed=True)} change", table(["Month", "Change", "You put in", "Debt paid down", "401(k) + match", "Market & other"], _rows), "pos" if changes["change"].sum() >= 0 else "neg")}
+      {fold(f"{len(changes)} months", f"{money(changes['change'].sum(), signed=True)} change", table(["Month", "Change", "You put in", "Debt change", "401(k) + match", "Market & other"], _rows), "pos" if changes["change"].sum() >= 0 else "neg")}
       <div class="t-note">"You put in" is the Monthly Savings Contributions rows at the bottom of the Net Worth tab.
-      "Debt paid down" is how much less you owe than the month before (the Liabilities subtotal and any mortgage
-      row). The sheet has only a yearly figure for the 401(k) and its match, so that part is spread evenly over the
+      "Debt change" is how much the debt moved since the month before (the Liabilities subtotal and any mortgage
+      row): positive is paid down, negative is new borrowing. The sheet has only a yearly figure for the 401(k) and its match, so that part is spread evenly over the
       months. "Market &amp; other" is the rest: market moves, home value, and cash left over from pay.
-      The current month is still live until you paste its values at month end.</div>
+      The current month keeps changing until you paste its values at month end.</div>
+      {_borrowed_note}
     </div>""")
     return
 
 
 @app.cell
 def __(
+    include_one_offs,
     emergency_months,
     fold,
     kpi_row,
@@ -635,6 +727,7 @@ def __(
     table,
     today,
 ):
+    _oo = "incl." if include_one_offs.value else "excl."
     # ── 4. Liquidity and runway ─────────────────────────────────────────────
     _spend = pf.average_monthly_spend(monthly_spend, today)
     _liq = pf.liquidity(net_worth, _spend)
@@ -666,15 +759,14 @@ def __(
     <div class="terminal">
       <div class="t-section">4 · Liquidity and runway</div>
       {kpi_row("At today's spending", [
-          kpi_tile("Spending / month", _spend, "average of complete months · excl. one-offs", "amb"),
+          kpi_tile("Spending / month", _spend, f"average of complete months · {_oo} one-offs", "amb"),
           stat_tile("Cash runway", f"{_liq['runway_cash']:.1f} mo" if "runway_cash" in _liq else "–", "cash &amp; savings alone", "pos"),
           stat_tile("Cash + investments", f"{_liq['runway_liquid']:.1f} mo" if "runway_liquid" in _liq else "–", "if you sold the taxable accounts", "pos"),
           kpi_tile("Emergency fund " + ("shortfall" if _short else "surplus"), _fund["surplus"], f"cash against {emergency_months.value:g} months of spending ({money(_fund['target'])})"),
       ])}
       <div class="t-controls"><div><span class="t-control-label">Months of spending to keep in cash</span>{emergency_months}</div></div>
       {fold(f"{len(_rows)} groups", f"{money(_assets)} in assets", table(["Where it sits", "How liquid", "Balance", "Share of assets", "Months of spending"], _rows))}
-      <div class="t-note">Spending is the average of the complete months so far, one-offs left out, so a down payment
-      doesn't shrink your runway. Real Estate is the sheet's subtotal, net of the mortgage where the sheet subtracts it there.</div>
+      <div class="t-note">Spending is the average of the complete months so far, one-offs {"counted, so a down payment shortens your runway" if include_one_offs.value else "left out, so a down payment doesn't shrink your runway"}. Real Estate is the sheet's subtotal, net of the mortgage where the sheet subtracts it there.</div>
     </div>""")
     return
 

@@ -129,12 +129,25 @@ def months_of(year: int, today: pd.Timestamp) -> pd.PeriodIndex:
     return pd.period_range(f"{year}-01", f"{year}-{last:02d}", freq="M")
 
 
+def _expense_key(splitwise_id, date, description: str, my_share: float) -> str:
+    """What marks an expense as one expense: its Splitwise ID (a shared bill
+    has the same one in both people's logs), or, for a sheet without that
+    column, its date, description and amount."""
+    if isinstance(splitwise_id, float) and splitwise_id.is_integer():
+        splitwise_id = int(splitwise_id)
+    text = str(splitwise_id).strip()
+    if text:
+        return text
+    return f"{date:%Y-%m-%d}|{description.lower()}|{my_share:.2f}"
+
+
 def parse_expense_log(
     values: list[list], year: int, today: pd.Timestamp
 ) -> pd.DataFrame:
     """One row per Splitwise expense in year, up to today (Splitwise holds
     future-dated bills too, like a property tax due next month), with
-    my_share = the "My Owed" column: your part of the bill whoever paid it."""
+    my_share = the "My Owed" column: your part of the bill whoever paid it,
+    and a key naming the expense (see _expense_key)."""
     header = values[0]
     columns = {
         "date": _column(header, "Date"),
@@ -142,19 +155,33 @@ def parse_expense_log(
         "category": _column(header, "Category"),
         "my_share": _column(header, "My Owed"),
     }
+    # The id column is optional: an older export may not have it
+    id_column = next(
+        (i for i, cell in enumerate(header) if str(cell).strip() == "Splitwise ID"),
+        None,
+    )
     rows = [
         {
             "date": _to_date(_cell(row, columns["date"])),
             "description": str(_cell(row, columns["description"])).strip(),
             "category": str(_cell(row, columns["category"])).strip(),
             "my_share": _to_number(_cell(row, columns["my_share"])),
+            "splitwise_id": "" if id_column is None else _cell(row, id_column),
         }
         for row in values[1:]
     ]
-    df = pd.DataFrame(rows, columns=list(columns))
+    df = pd.DataFrame(rows, columns=[*columns, "splitwise_id"])
     df = df.dropna(subset=["date"])
-    df = df[(df["date"].dt.year == year) & (df["date"] <= today)]
-    return df.sort_values("date").reset_index(drop=True)
+    df = df[(df["date"].dt.year == year) & (df["date"] <= today)].copy()
+    df["key"] = [
+        _expense_key(r.splitwise_id, r.date, r.description, r.my_share)
+        for r in df.itertuples()
+    ]
+    return (
+        df.drop(columns="splitwise_id")
+        .sort_values("date", kind="stable")
+        .reset_index(drop=True)
+    )
 
 
 def parse_expense_logs(
@@ -206,6 +233,7 @@ BUDGET_ITEMS = {
     "401k": "401k contribution",
     "401k_match": "401k company match",
     "total_savings": "total savings",
+    "take_home_savings": "take-home savings",
 }
 
 
@@ -261,14 +289,28 @@ def market_change(net_worth: pd.DataFrame, budget_items: dict) -> tuple[float, f
     return market, market / change if change else 0.0
 
 
-def split_large(
-    expenses: pd.DataFrame, threshold: float
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(everyday, one-offs): transactions whose share is at least threshold
-    either way (a down payment, or a big purchase and its refund) would
+def split_marked(expenses: pd.DataFrame, keys) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(everyday, one-offs): the expenses whose key is in keys are the
+    one-offs (a down payment, or a big purchase and its refund), which would
     swamp every chart, so they're shown separately instead."""
-    large = expenses["my_share"].abs() >= threshold
-    return expenses[~large], expenses[large]
+    marked = expenses["key"].isin(set(keys))
+    return expenses[~marked], expenses[marked]
+
+
+def one_off_candidates(expenses: pd.DataFrame, n: int = 40) -> pd.DataFrame:
+    """The n biggest expenses by absolute share, for picking the one-offs
+    from: one row per key (the two halves of a shared bill, from each
+    person's log, are added up), with its first date, description and
+    category and the total share. Biggest first."""
+    table = expenses.groupby("key", sort=False).agg(
+        date=("date", "min"),
+        description=("description", "first"),
+        category=("category", "first"),
+        my_share=("my_share", "sum"),
+    )
+    table = table.assign(size=table["my_share"].abs())
+    table = table.sort_values("size", ascending=False, kind="stable").head(n)
+    return table.drop(columns="size").reset_index()
 
 
 def with_groups(expenses: pd.DataFrame, budgets: pd.DataFrame) -> pd.DataFrame:
@@ -426,9 +468,9 @@ def net_worth_changes(
 ) -> pd.DataFrame:
     """Each month's change in net worth (from the second month on, since the
     first is the opening balance), split into what you put in (the
-    contributions logged that month), debt paid down (debt is the total debt
-    balance by month, negative, from debt_balance(): it rising towards zero is
-    principal paid), your 401(k) contributions and match (retirement_total
+    contributions logged that month), the debt change (debt is the total debt
+    balance by month, negative, from debt_balance(): rising towards zero is
+    principal paid, falling is new borrowing), your 401(k) contributions and match (retirement_total
     for the period, split evenly, since the sheet only has the yearly figure)
     and everything else (markets, home value, cash left over)."""
     change = net_worth[NET_WORTH].diff().iloc[1:]
@@ -448,6 +490,20 @@ def net_worth_changes(
             "market": change - saved - paid_down - retirement,
         }
     )
+
+
+# A month's debt rising by this much counts as new borrowing worth flagging
+BORROWING_FLAG = 25_000
+
+
+def borrowing_months(
+    changes: pd.DataFrame, minimum: float = BORROWING_FLAG
+) -> list[tuple[pd.Period, float]]:
+    """The months of net_worth_changes() where the debt rose by at least
+    minimum (a new mortgage, say), as (month, amount borrowed). What the
+    money bought lands in "market", so these months are called out."""
+    rose = changes["debt"] <= -minimum
+    return [(month, -changes.loc[month, "debt"]) for month in changes.index[rose]]
 
 
 def debt_balance(values: list[list], months: pd.PeriodIndex) -> pd.Series:
@@ -927,35 +983,32 @@ def allocation(
 
 
 def savings_rates(budget_items: dict, saved: float) -> dict[str, float]:
-    """The year's savings as a share of income, against the budget's own
-    plan. saved is the logged contributions to date.
+    """The year's savings as a share of income, as the Dashboard tab shows it.
 
-    take_home: saved / actual take-home pay.
-    total: (saved + 401(k) + company match) / actual gross income, the whole
-    share of pay that went into assets.
-    target_take_home, target_total: the same two from the Budget Yearly
-    column (its Total Savings, 401(k) and match over its take-home and gross).
+    take_home: the Budget tab's Take-Home Savings row over actual take-home
+    pay. saved, the logged contributions to date, stands in when the sheet
+    has no such row.
+    total: the Total Savings row (take-home savings plus what went to the
+    401(k)) over actual gross income; without that row, saved plus the
+    401(k) and company match.
     A rate whose figures the sheet doesn't have is left out."""
 
     def actual(key):
         return budget_items.get(key, (0.0, 0.0))[0]
 
-    def planned(key):
-        return budget_items.get(key, (0.0, 0.0))[1]
-
-    retirement = actual("401k") + actual("401k_match")
-    planned_retirement = planned("401k") + planned("401k_match")
+    take_home_savings = (
+        actual("take_home_savings") if "take_home_savings" in budget_items else saved
+    )
+    total_savings = (
+        actual("total_savings")
+        if "total_savings" in budget_items
+        else saved + actual("401k") + actual("401k_match")
+    )
     rates = {}
     if actual("take_home"):
-        rates["take_home"] = saved / actual("take_home")
+        rates["take_home"] = take_home_savings / actual("take_home")
     if actual("gross_income"):
-        rates["total"] = (saved + retirement) / actual("gross_income")
-    if planned("take_home") and planned("total_savings"):
-        rates["target_take_home"] = planned("total_savings") / planned("take_home")
-    if planned("gross_income") and planned("total_savings"):
-        rates["target_total"] = (
-            planned("total_savings") + planned_retirement
-        ) / planned("gross_income")
+        rates["total"] = total_savings / actual("gross_income")
     return rates
 
 
