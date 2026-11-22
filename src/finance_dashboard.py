@@ -66,7 +66,9 @@ def __(mo):
     reload = mo.ui.button(
         label="↻ Reload from Sheets", value=0, on_click=lambda n: n + 1
     )
-    include_one_offs = mo.ui.checkbox(label="Include one-offs in the charts", value=True)
+    include_one_offs = mo.ui.checkbox(
+        label="Include one-offs in the charts", value=True
+    )
     emergency_months = mo.ui.number(start=1, stop=24, step=1, value=6)
     return emergency_months, include_one_offs, reload
 
