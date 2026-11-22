@@ -196,6 +196,7 @@ def __(
 
 @app.cell
 def __(
+    budget_items,
     include_one_offs,
     mo,
     money,
@@ -211,6 +212,12 @@ def __(
     _oo = "incl." if include_one_offs.value else "excl."
     _spent = monthly_spend.sum()
     _saved = savings.sum()
+    # Like the Total savings tile: what the Budget tab plans for the year
+    _saved_sub = (
+        f"{money(budget_items['take_home_savings'][1])} budgeted"
+        if "take_home_savings" in budget_items
+        else f"{money(_saved / len(savings))} / month · logged contributions"
+    )
     _nw = net_worth[pf.NET_WORTH]
     _nw_change = _nw.iloc[-1] - _nw.iloc[0]
 
@@ -228,7 +235,7 @@ def __(
       </div>
       <div class="t-kpis">
         {_kpi("Spent (your share)", money(_spent), f"{money(_spent / len(monthly_spend))} / month · {_oo} one-offs", "amb")}
-        {_kpi("Take-home savings", money(_saved), f"{money(_saved / len(savings))} / month · logged contributions", "pos" if _saved >= 0 else "neg")}
+        {_kpi("Take-home savings", money(_saved), _saved_sub, "pos" if _saved >= 0 else "neg")}
         {_kpi("Net worth", money(_nw.iloc[-1]), f"as of {_nw.index[-1].strftime('%b')}", "pos")}
         {_kpi("Net worth change", money(_nw_change, signed=True), "", "pos" if _nw_change >= 0 else "neg")}
       </div>
