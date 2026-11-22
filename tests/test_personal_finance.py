@@ -1028,3 +1028,18 @@ class TestDividends:
         assert rate["last_12_months"] == 27.5  # the old row isn't counted
         assert not rate["estimated"]
         assert rate["per_year"] == 27.5
+
+
+class TestLoadProjectedDividends:
+    def _load(self, monkeypatch, tabs):
+        monkeypatch.setattr(pf, "read_values_from_sheets", lambda *a, **k: tabs)
+        monkeypatch.setattr(pf, "_holdings_spreadsheet_name", lambda: "Holdings")
+        return pf.load_projected_dividends()
+
+    def test_reads_k3_of_the_stocks_tab(self, monkeypatch):
+        rows = [[], [], ["", "", "", "", "", "", "", "", "", "", 2250.5]]
+        assert self._load(monkeypatch, {"Stocks": rows}) == 2250.5
+
+    def test_missing_tab_or_empty_cell_is_none(self, monkeypatch):
+        assert self._load(monkeypatch, {}) is None
+        assert self._load(monkeypatch, {"Stocks": [[], [], ["x"]]}) is None

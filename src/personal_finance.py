@@ -1141,6 +1141,18 @@ def load_dividends() -> pd.DataFrame:
     )
 
 
+def load_projected_dividends() -> float | None:
+    """The yearly dividend the holdings spreadsheet's Stocks tab projects from
+    each stock's dividend rate and share count (its cell K3), or None when
+    the tab or the cell isn't there."""
+    tabs = read_values_from_sheets(
+        [], _holdings_spreadsheet_name(), optional_worksheet_names=("Stocks",)
+    )
+    rows = tabs.get("Stocks", [])
+    value = _to_number(_cell(rows[2], 10)) if len(rows) > 2 else 0.0
+    return value if value else None
+
+
 def parse_dividends(raw: pd.DataFrame) -> pd.DataFrame:
     """The ledger as date, institution, name (its ticker, else the security's
     name) and amount, oldest first."""
