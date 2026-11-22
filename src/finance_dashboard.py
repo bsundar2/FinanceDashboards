@@ -230,7 +230,7 @@ def __(
         {_kpi("Spent (your share)", money(_spent), f"{money(_spent / len(monthly_spend))} / month · {_oo} one-offs", "amb")}
         {_kpi("Take-home savings", money(_saved), f"{money(_saved / len(savings))} / month · logged contributions", "pos" if _saved >= 0 else "neg")}
         {_kpi("Net worth", money(_nw.iloc[-1]), f"as of {_nw.index[-1].strftime('%b')}", "pos")}
-        {_kpi("Net worth change", money(_nw_change, signed=True), f"since {_nw.index[0].strftime('%b')} opening", "pos" if _nw_change >= 0 else "neg")}
+        {_kpi("Net worth change", money(_nw_change, signed=True), "", "pos" if _nw_change >= 0 else "neg")}
       </div>
     </div>"""
     return (header_html,)
