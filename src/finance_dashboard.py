@@ -66,15 +66,9 @@ def __(mo):
     reload = mo.ui.button(
         label="↻ Reload from Sheets", value=0, on_click=lambda n: n + 1
     )
-    large_threshold = mo.ui.number(
-        start=500,
-        stop=1_000_000,
-        step=500,
-        value=5000,
-    )
     include_one_offs = mo.ui.checkbox(label="Include them", value=True)
     emergency_months = mo.ui.number(start=1, stop=24, step=1, value=6)
-    return emergency_months, include_one_offs, large_threshold, reload
+    return emergency_months, include_one_offs, reload
 
 
 @app.cell
@@ -152,14 +146,38 @@ def __(html, load_error, mo, pd, pf, spreadsheet_name, today, workbook):
 
 
 @app.cell
-def __(include_one_offs, large_threshold, mo, reload):
+def __(include_one_offs, mo, reload):
     mo.Html(f"""
     <div class="t-controls">
       <div>{reload}</div>
-      <div>
-        <span class="t-control-label">Show one-off expenses of at least ($) separately</span>
-        <span style="{'opacity: 0.35; pointer-events: none;' if include_one_offs.value else ''}">{large_threshold}</span>
-        {include_one_offs}
+      <div>{include_one_offs}</div>
+    </div>""")
+    return
+
+
+@app.cell
+def __(expenses, mo, money, pf):
+    # The biggest expenses to pick one-offs from. Created here, apart from the
+    # cell that draws it, so ticking the box below doesn't reset the picks.
+    _candidates = pf.one_off_candidates(expenses)
+    _labels = {}
+    for _row in _candidates.itertuples():
+        _label = f"{_row.date:%Y-%m-%d} · {_row.description} · {_row.category} · {money(_row.my_share)}"
+        while _label in _labels:
+            _label += " "
+        _labels[_label] = _row.key
+    one_off_picker = mo.ui.multiselect(options=_labels, label="", full_width=True)
+    return (one_off_picker,)
+
+
+@app.cell
+def __(include_one_offs, mo, one_off_picker):
+    mo.stop(not one_off_picker.options)
+    mo.Html(f"""
+    <div class="t-controls">
+      <div style="flex: 1; min-width: 0;">
+        <span class="t-control-label">Mark specific expenses as one-offs, to leave them out of the charts (untick Include them)</span>
+        <div style="{'opacity: 0.35; pointer-events: none;' if include_one_offs.value else ''}">{one_off_picker}</div>
       </div>
     </div>""")
     return
@@ -172,13 +190,13 @@ def __(
     debt,
     expenses,
     include_one_offs,
-    large_threshold,
     months,
     net_worth,
+    one_off_picker,
     pf,
 ):
     # ── Everything the sections below draw ──────────────────────────────────
-    everyday, one_offs = pf.split_large(expenses, large_threshold.value)
+    everyday, one_offs = pf.split_marked(expenses, one_off_picker.value)
     if include_one_offs.value:
         # Checked: every expense is charted and counted, one-offs included
         everyday = expenses

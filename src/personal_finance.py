@@ -129,12 +129,25 @@ def months_of(year: int, today: pd.Timestamp) -> pd.PeriodIndex:
     return pd.period_range(f"{year}-01", f"{year}-{last:02d}", freq="M")
 
 
+def _expense_key(splitwise_id, date, description: str, my_share: float) -> str:
+    """What marks an expense as one expense: its Splitwise ID (a shared bill
+    has the same one in both people's logs), or, for a sheet without that
+    column, its date, description and amount."""
+    if isinstance(splitwise_id, float) and splitwise_id.is_integer():
+        splitwise_id = int(splitwise_id)
+    text = str(splitwise_id).strip()
+    if text:
+        return text
+    return f"{date:%Y-%m-%d}|{description.lower()}|{my_share:.2f}"
+
+
 def parse_expense_log(
     values: list[list], year: int, today: pd.Timestamp
 ) -> pd.DataFrame:
     """One row per Splitwise expense in year, up to today (Splitwise holds
     future-dated bills too, like a property tax due next month), with
-    my_share = the "My Owed" column: your part of the bill whoever paid it."""
+    my_share = the "My Owed" column: your part of the bill whoever paid it,
+    and a key naming the expense (see _expense_key)."""
     header = values[0]
     columns = {
         "date": _column(header, "Date"),
@@ -142,19 +155,33 @@ def parse_expense_log(
         "category": _column(header, "Category"),
         "my_share": _column(header, "My Owed"),
     }
+    # The id column is optional: an older export may not have it
+    id_column = next(
+        (i for i, cell in enumerate(header) if str(cell).strip() == "Splitwise ID"),
+        None,
+    )
     rows = [
         {
             "date": _to_date(_cell(row, columns["date"])),
             "description": str(_cell(row, columns["description"])).strip(),
             "category": str(_cell(row, columns["category"])).strip(),
             "my_share": _to_number(_cell(row, columns["my_share"])),
+            "splitwise_id": "" if id_column is None else _cell(row, id_column),
         }
         for row in values[1:]
     ]
-    df = pd.DataFrame(rows, columns=list(columns))
+    df = pd.DataFrame(rows, columns=[*columns, "splitwise_id"])
     df = df.dropna(subset=["date"])
-    df = df[(df["date"].dt.year == year) & (df["date"] <= today)]
-    return df.sort_values("date").reset_index(drop=True)
+    df = df[(df["date"].dt.year == year) & (df["date"] <= today)].copy()
+    df["key"] = [
+        _expense_key(r.splitwise_id, r.date, r.description, r.my_share)
+        for r in df.itertuples()
+    ]
+    return (
+        df.drop(columns="splitwise_id")
+        .sort_values("date", kind="stable")
+        .reset_index(drop=True)
+    )
 
 
 def parse_expense_logs(
@@ -262,14 +289,28 @@ def market_change(net_worth: pd.DataFrame, budget_items: dict) -> tuple[float, f
     return market, market / change if change else 0.0
 
 
-def split_large(
-    expenses: pd.DataFrame, threshold: float
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(everyday, one-offs): transactions whose share is at least threshold
-    either way (a down payment, or a big purchase and its refund) would
+def split_marked(expenses: pd.DataFrame, keys) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(everyday, one-offs): the expenses whose key is in keys are the
+    one-offs (a down payment, or a big purchase and its refund), which would
     swamp every chart, so they're shown separately instead."""
-    large = expenses["my_share"].abs() >= threshold
-    return expenses[~large], expenses[large]
+    marked = expenses["key"].isin(set(keys))
+    return expenses[~marked], expenses[marked]
+
+
+def one_off_candidates(expenses: pd.DataFrame, n: int = 40) -> pd.DataFrame:
+    """The n biggest expenses by absolute share, for picking the one-offs
+    from: one row per key (the two halves of a shared bill, from each
+    person's log, are added up), with its first date, description and
+    category and the total share. Biggest first."""
+    table = expenses.groupby("key", sort=False).agg(
+        date=("date", "min"),
+        description=("description", "first"),
+        category=("category", "first"),
+        my_share=("my_share", "sum"),
+    )
+    table = table.assign(size=table["my_share"].abs())
+    table = table.sort_values("size", ascending=False, kind="stable").head(n)
+    return table.drop(columns="size").reset_index()
 
 
 def with_groups(expenses: pd.DataFrame, budgets: pd.DataFrame) -> pd.DataFrame:

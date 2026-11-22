@@ -196,16 +196,79 @@ class TestParseCategoryBudgets:
         assert list(budgets["monthly_budget"]) == [100, 200, 300]
 
 
-class TestSplitLarge:
-    def test_splits_on_absolute_share(self, expenses):
-        everyday, large = pf.split_large(expenses, 1000)
-        assert list(large["description"]) == ["Car payoff"]
+def _car_key(expenses):
+    return expenses.loc[expenses["description"] == "Car payoff", "key"].iloc[0]
+
+
+class TestSplitMarked:
+    def test_only_the_marked_expenses_are_one_offs(self, expenses):
+        everyday, one_offs = pf.split_marked(expenses, [_car_key(expenses)])
+        assert list(one_offs["description"]) == ["Car payoff"]
         assert len(everyday) == 4
+
+    def test_nothing_marked_leaves_everything_everyday(self, expenses):
+        everyday, one_offs = pf.split_marked(expenses, [])
+        assert len(everyday) == len(expenses)
+        assert one_offs.empty
+
+    def test_a_key_that_is_no_longer_there_is_ignored(self, expenses):
+        everyday, one_offs = pf.split_marked(expenses, ["gone"])
+        assert len(everyday) == len(expenses)
+        assert one_offs.empty
+
+
+class TestExpenseKeys:
+    HEADER = ["Date", "Category", "Description", "My Owed", "Splitwise ID"]
+
+    def test_the_splitwise_id_names_the_expense(self):
+        values = [
+            self.HEADER,
+            [_serial("2026-01-05"), "Car", "Down payment", 9000, 4741534204.0],
+            [_serial("2026-01-06"), "Pets", "Vet", 60, "4793722463"],
+        ]
+        keys = pf.parse_expense_log(values, 2026, TODAY)["key"]
+        assert list(keys) == ["4741534204", "4793722463"]
+
+    def test_without_an_id_it_is_the_date_description_and_amount(self, expenses):
+        key = _car_key(expenses)
+        assert key == "2026-02-03|car payoff|9000.00"
+
+    def test_both_halves_of_a_shared_bill_are_marked_together(self):
+        mine = [self.HEADER, [_serial("2026-01-05"), "Car", "Car", 600, 77]]
+        partner = [self.HEADER, [_serial("2026-01-05"), "Car", "Car", 400, 77]]
+        workbook = {pf.EXPENSE_LOG_TAB: mine, pf.PARTNER_EXPENSE_LOG_TAB: partner}
+        expenses = pf.parse_expense_logs(workbook, 2026, TODAY)
+
+        everyday, one_offs = pf.split_marked(expenses, ["77"])
+        assert everyday.empty
+        assert one_offs["my_share"].sum() == 1000
+
+
+class TestOneOffCandidates:
+    def test_biggest_first_with_shared_bills_added_up(self):
+        header = ["Date", "Category", "Description", "My Owed", "Splitwise ID"]
+        mine = [
+            header,
+            [_serial("2026-01-05"), "Car", "Car", 600, 77],
+            [_serial("2026-01-06"), "Pets", "Vet", 700, 78],
+            [_serial("2026-01-07"), "Pets", "Treat", 5, 79],
+        ]
+        partner = [header, [_serial("2026-01-05"), "Car", "Car", 400, 77]]
+        workbook = {pf.EXPENSE_LOG_TAB: mine, pf.PARTNER_EXPENSE_LOG_TAB: partner}
+        expenses = pf.parse_expense_logs(workbook, 2026, TODAY)
+
+        table = pf.one_off_candidates(expenses, n=2)
+        assert list(table["key"]) == ["77", "78"]
+        assert list(table["my_share"]) == [1000, 700]
+
+    def test_a_refund_is_as_big_as_the_purchase(self, expenses):
+        table = pf.one_off_candidates(expenses, n=1)
+        assert list(table["description"]) == ["Car payoff"]
 
 
 class TestMonthlyByGroup:
     def test_pivots_with_every_month_and_other_group(self, expenses, budgets):
-        everyday, _ = pf.split_large(expenses, 1000)
+        everyday, _ = pf.split_marked(expenses, [_car_key(expenses)])
         table = pf.monthly_by_group(everyday, budgets, MONTHS)
 
         assert list(table.columns) == ["Food and drink", pf.OTHER_GROUP]
@@ -215,7 +278,7 @@ class TestMonthlyByGroup:
 
 class TestMonthlyByCategory:
     def test_sub_categories_of_one_group_largest_first(self, expenses, budgets):
-        everyday, _ = pf.split_large(expenses, 1000)
+        everyday, _ = pf.split_marked(expenses, [_car_key(expenses)])
         table = pf.monthly_by_category(everyday, budgets, MONTHS, "Food and drink")
 
         assert list(table.columns) == ["Dining out", "Groceries"]
@@ -225,7 +288,7 @@ class TestMonthlyByCategory:
         assert list(table.sum(axis=1)) == list(group)
 
     def test_smallest_beyond_the_limit_are_other(self, expenses, budgets):
-        everyday, _ = pf.split_large(expenses, 1000)
+        everyday, _ = pf.split_marked(expenses, [_car_key(expenses)])
         table = pf.monthly_by_category(
             everyday, budgets, MONTHS, "Food and drink", max_categories=1
         )
