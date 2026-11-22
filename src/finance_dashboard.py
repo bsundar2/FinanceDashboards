@@ -166,7 +166,14 @@ def __(expenses, mo, money, pf):
         while _label in _labels:
             _label += " "
         _labels[_label] = _row.key
-    one_off_picker = mo.ui.multiselect(options=_labels, label="", full_width=True)
+    # max_selections keeps marimo from offering "Select all", which would mark
+    # every candidate as a one-off in one click
+    one_off_picker = mo.ui.multiselect(
+        options=_labels,
+        label="",
+        full_width=True,
+        max_selections=max(len(_labels), 1),
+    )
     return (one_off_picker,)
 
 
@@ -176,7 +183,7 @@ def __(include_one_offs, mo, one_off_picker):
     mo.Html(f"""
     <div class="t-controls">
       <div style="flex: 1; min-width: 0;">
-        <span class="t-control-label">Mark specific expenses as one-offs, to leave them out of the charts (untick Include them)</span>
+        <span class="t-control-label">Mark specific expenses as one-offs, to leave them out of the charts</span>
         <div style="{'opacity: 0.35; pointer-events: none;' if include_one_offs.value else ''}">{one_off_picker}</div>
       </div>
     </div>""")
