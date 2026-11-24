@@ -1141,48 +1141,16 @@ def load_dividends() -> pd.DataFrame:
     )
 
 
-def load_stocks_tab() -> list[list]:
-    """Every cell of the holdings spreadsheet's Stocks tab, or no rows when
-    the tab isn't there."""
+def load_projected_dividends() -> float | None:
+    """The yearly dividend the holdings spreadsheet's Stocks tab projects from
+    each stock's dividend rate and share count (its cell K3), or None when
+    the tab or the cell isn't there."""
     tabs = read_values_from_sheets(
         [], _holdings_spreadsheet_name(), optional_worksheet_names=("Stocks",)
     )
-    return tabs.get("Stocks", [])
-
-
-def projected_dividend_total(rows: list[list]) -> float | None:
-    """The yearly dividend the Stocks tab projects from each stock's dividend
-    rate and share count (its cell K3), or None when the cell is empty."""
+    rows = tabs.get("Stocks", [])
     value = _to_number(_cell(rows[2], 10)) if len(rows) > 2 else 0.0
     return value if value else None
-
-
-def projected_dividends_by_stock(rows: list[list], n: int = 8) -> pd.DataFrame:
-    """Each stock's projected yearly dividend (the Stocks tab's DVD / Year
-    column, found by its header), biggest first, with all but the n biggest
-    summed into Other. Columns: name, yearly."""
-    for i, row in enumerate(rows):
-        labels = [str(c).strip().lower() for c in row]
-        if "symbol" in labels and "dvd / year" in labels:
-            symbol_col, dvd_col = labels.index("symbol"), labels.index("dvd / year")
-            break
-    else:
-        return pd.DataFrame(columns=["name", "yearly"])
-    found = []
-    for row in rows[i + 1 :]:
-        name = str(_cell(row, symbol_col)).strip()
-        yearly = _to_number(_cell(row, dvd_col))
-        if name and yearly > 0:
-            found.append((name, yearly))
-    df = pd.DataFrame(found, columns=["name", "yearly"]).sort_values(
-        "yearly", ascending=False, ignore_index=True
-    )
-    if len(df) > n:
-        other = pd.DataFrame(
-            [("Other", df["yearly"].iloc[n:].sum())], columns=df.columns
-        )
-        df = pd.concat([df.iloc[:n], other], ignore_index=True)
-    return df
 
 
 def parse_dividends(raw: pd.DataFrame) -> pd.DataFrame:
