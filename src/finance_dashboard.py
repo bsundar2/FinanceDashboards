@@ -841,7 +841,7 @@ def __(
       <div class="t-section">5 · Dividend income</div>
       {kpi_row("From the dividends ledger", [
           kpi_tile("This year", _total, f"{money(_total / len(months))} / month so far", "pos"),
-          kpi_tile("Projected yearly", projected_dividends, "dividend rates × shares held", "amb") if projected_dividends else "",
+          kpi_tile("Projected yearly", projected_dividends, f"{money(projected_dividends / 12)} / month", "amb") if projected_dividends else "",
           kpi_tile("Last 12 months", _rate["last_12_months"], "all accounts in the ledger", "pos") if _rate else "",
           kpi_tile("Yearly pace", _rate["per_year"], (f"scaled up from {_rate['months_of_history']:.0f} months of history" if _rate["estimated"] else "the last 12 months"), "amb") if _rate else "",
       ])}
