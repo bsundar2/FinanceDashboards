@@ -1030,16 +1030,32 @@ class TestDividends:
         assert rate["per_year"] == 27.5
 
 
-class TestLoadProjectedDividends:
-    def _load(self, monkeypatch, tabs):
-        monkeypatch.setattr(pf, "read_values_from_sheets", lambda *a, **k: tabs)
-        monkeypatch.setattr(pf, "_holdings_spreadsheet_name", lambda: "Holdings")
-        return pf.load_projected_dividends()
+class TestProjectedDividends:
+    ROWS = [
+        [],
+        [],
+        ["", "", "", "", "", "", "", "", "", "", 2250.5],
+        [],
+        ["", "Symbol", "x", "y", "z", "p", "q", "r", "s", "t", "u", "v", "DVD / Year"],
+        ["", "AAA", "", "", "", "", "", "", "", "", "", "", 300],
+        ["", "BBB", "", "", "", "", "", "", "", "", "", "", 100],
+        ["", "CCC", "", "", "", "", "", "", "", "", "", "", 0],
+        ["", "DDD", "", "", "", "", "", "", "", "", "", "", 50],
+    ]
 
-    def test_reads_k3_of_the_stocks_tab(self, monkeypatch):
-        rows = [[], [], ["", "", "", "", "", "", "", "", "", "", 2250.5]]
-        assert self._load(monkeypatch, {"Stocks": rows}) == 2250.5
+    def test_total_is_k3(self):
+        assert pf.projected_dividend_total(self.ROWS) == 2250.5
+        assert pf.projected_dividend_total([]) is None
+        assert pf.projected_dividend_total([[], [], ["x"]]) is None
 
-    def test_missing_tab_or_empty_cell_is_none(self, monkeypatch):
-        assert self._load(monkeypatch, {}) is None
-        assert self._load(monkeypatch, {"Stocks": [[], [], ["x"]]}) is None
+    def test_by_stock_biggest_first_and_skips_zero(self):
+        df = pf.projected_dividends_by_stock(self.ROWS)
+        assert list(df["name"]) == ["AAA", "BBB", "DDD"]
+
+    def test_beyond_n_summed_into_other(self):
+        df = pf.projected_dividends_by_stock(self.ROWS, n=1)
+        assert list(df["name"]) == ["AAA", "Other"]
+        assert df["yearly"].iloc[1] == 150
+
+    def test_no_header_is_empty(self):
+        assert pf.projected_dividends_by_stock([["a"]]).empty

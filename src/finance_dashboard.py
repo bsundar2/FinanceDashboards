@@ -103,10 +103,10 @@ def __(pf, reload, spreadsheet_name, today, load_error):
     except Exception as e:
         dividends, dividends_error = None, f"{type(e).__name__}: {e}"
     try:
-        projected_dividends = pf.load_projected_dividends()
+        stocks_rows = pf.load_stocks_tab()
     except Exception:
-        projected_dividends = None
-    return dividends, dividends_error, previous_expenses, projected_dividends
+        stocks_rows = []
+    return dividends, dividends_error, previous_expenses, stocks_rows
 
 
 @app.cell
@@ -803,8 +803,8 @@ def __(
     month_labels,
     months,
     pf,
-    projected_dividends,
     stacked_bars_svg,
+    stocks_rows,
     stat_tile,
     table,
     today,
@@ -836,12 +836,50 @@ def __(
         [(html.escape(r.name), "tk"), (money(r.total), "pos"), (str(r.count), "")]
         for r in _payers.itertuples()
     ]
+    _projected = pf.projected_dividend_total(stocks_rows)
+    _stocks = pf.projected_dividends_by_stock(stocks_rows)
+    _proj_html = ""
+    if len(_stocks):
+        # The tab has no payment dates, so each stock's year is spread evenly
+        _proj_colors = [PALETTE[i % len(PALETTE)] for i in range(len(_stocks))]
+        _proj_labels = [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+        ]
+        _proj_series = {
+            html.escape(r.name): [r.yearly / 12] * 12 for r in _stocks.itertuples()
+        }
+        _proj_rows = [
+            [
+                (html.escape(r.name), "tk"),
+                (money(r.yearly), "pos"),
+                (money(r.yearly / 12), ""),
+            ]
+            for r in _stocks.itertuples()
+        ]
+        _proj_html = f"""
+      <div class="t-section">Projected by month</div>
+      {legend(list(_proj_series), _proj_colors)}
+      <div class="t-chart">{stacked_bars_svg(_proj_labels, _proj_series, _proj_colors, line=[_stocks["yearly"].sum() / 12] * 12)}</div>
+      {fold(f"{len(_stocks)} stocks", f"{money(_stocks['yearly'].sum())} a year", table(["Stock", "Per year", "Per month"], _proj_rows), "pos")}
+      <div class="t-note">Each stock's dividend rate times the shares held, spread evenly over the year, since the
+      payment months aren't known.</div>"""
     mo.Html(f"""
     <div class="terminal">
       <div class="t-section">5 · Dividend income</div>
       {kpi_row("From the dividends ledger", [
           kpi_tile("This year", _total, f"{money(_total / len(months))} / month so far", "pos"),
-          kpi_tile("Projected yearly", projected_dividends, "dividend rates × shares held", "amb") if projected_dividends else "",
+          kpi_tile("Projected yearly", _projected, "dividend rates × shares held", "amb") if _projected else "",
           kpi_tile("Last 12 months", _rate["last_12_months"], "all accounts in the ledger", "pos") if _rate else "",
           kpi_tile("Yearly pace", _rate["per_year"], (f"scaled up from {_rate['months_of_history']:.0f} months of history" if _rate["estimated"] else "the last 12 months"), "amb") if _rate else "",
       ])}
@@ -850,7 +888,7 @@ def __(
       {fold(f"{len(_payer_rows)} biggest payers", f"{money(_payers['total'].sum())}", table(["Security", "Received", "Payments"], _payer_rows), "pos")}
       <div class="t-note">Wells Fargo and Fidelity dividends the pipeline has recorded; the ledger only grows from when it
       started, so a yearly pace over less than a year of history is an estimate. Securities are shown by ticker where the
-      ledger has one.</div>
+      ledger has one.</div>{_proj_html}
     </div>""")
     return
 
