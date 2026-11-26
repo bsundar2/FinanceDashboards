@@ -647,10 +647,6 @@ def __(
       {legend([html.escape(b) for b in _names] + ["Take-home savings"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       {fold(f"{len(savings)} months · {len(_names)} buckets", f"{money(_total)} take-home savings", table(["Month", *[html.escape(b) for b in _names], "Total", "Year to date"], _rows), "pos" if _total >= 0 else "neg")}
-      <div class="t-note">Take-home savings is the Monthly Savings Contributions rows at the bottom of the Net Worth tab, one bucket
-      per row, the same figure as the Budget tab's Take-Home Savings, so without the 401(k). Beyond eight buckets the smallest are summed into
-      Other, and a bar below zero is money taken out. It's what you logged as put away, not take-home minus spending,
-      so a big purchase paid from savings, like a down payment, doesn't lower it.</div>
     </div>""")
     return
 
