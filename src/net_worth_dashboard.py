@@ -271,7 +271,6 @@ def __(
     month_labels,
     net_worth,
     nw_category,
-    pf,
     stacked_bars_svg,
     table,
 ):
@@ -307,9 +306,6 @@ def __(
     <div class="terminal">
       {legend([html.escape(a) for a in _accounts] + [nw_category + " total"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
-      <div class="t-note">The account rows above the subtotal on the Net Worth tab. Beyond seven accounts the
-      smallest are summed into Other, and "{pf.UNLISTED}" is whatever the subtotal holds that its account rows
-      don't add up to.</div>
       {fold(f"{len(_accounts)} accounts", f"{money(_total)} in {month_labels[-1]}", table(_headers, _rows), "pos" if _total >= 0 else "neg")}
     </div>""")
     return
