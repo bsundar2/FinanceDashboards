@@ -448,9 +448,6 @@ def __(
       {legend([html.escape(c) for c in _df.columns] + [f"{html.escape(_group)} total"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       {fold(f"{len(_rows)} sub-categories", f"{money(_total)} {_oo} one-offs", table(["Sub-category", f"Spent ({_oo} one-offs)", "Per month", "Spent (all)", "Budget to date", "Over / under"], _rows))}
-      <div class="t-note">Sub-categories are the Expense Log's categories, grouped as on the Monthly Expenses tab;
-      beyond eight the smallest are summed into Other. The chart {"counts" if include_one_offs.value else "leaves out"} one-offs, like the one above; the
-      last three columns count them, as the budget tables below do.</div>
     </div>""")
     return
 
