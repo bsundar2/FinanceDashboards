@@ -21,29 +21,25 @@
      notebook's own styles load), and marimo's spinning-circle loader swapped
      for dollar bills fluttering down. Only the big page loader is replaced
      (marimo marks it data-testid="large-spinner"); if marimo changes it, the spinner just stays.
-     The same bills fill the small "cells are running" indicator, centered by the CSS below. -->
+     The same bills fall across the whole screen as the "cells are running" indicator, laid out by the CSS below. -->
 <style>
   html, body, #root { background: #0a0c0f !important; }
-  /* marimo's "running" indicator: the bills in the middle of the screen
+  /* marimo's "running" indicator: a full-screen overlay of falling bills
      instead of its hourglass in the top-left corner. Here rather than in the
-     notebooks' STYLE, which only arrives once the first cell has run, so the
-     indicator is centered from the very first load. Like the hourglass it
-     only appears once cells have run for a second, so a quick dropdown change
-     doesn't flash it. */
+     notebooks' STYLE, which only arrives once the first cell has run, so it is
+     right from the very first load. Like the hourglass it only appears once
+     cells have run for a second, so a quick dropdown change doesn't flash it. */
   [data-testid="loading-indicator"] {
     position: fixed;
-    top: 50%;
-    left: 50%;
-    width: 120px;
-    height: 106px;
-    margin: -53px 0 0 -60px;
-    overflow: hidden;
-    border-radius: 12px;
-    box-shadow: 0 0 0 10px rgba(10, 12, 15, 0.85);
-    background: rgba(10, 12, 15, 0.85);
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+    background: rgba(10, 12, 15, 0.92);
     animation: t-appear 0.2s ease-out 1s both;
   }
   [data-testid="loading-indicator"] .running-app-icon { display: none; }
+  [data-testid="loading-indicator"] .money-loader,
+  [data-testid="loading-indicator"] .money-loader svg { width: 100%; height: 100%; }
   @keyframes t-appear { from { opacity: 0; } to { opacity: 1; } }
   .money-loader { display: flex; justify-content: center; }
   .money-loader .bill {
@@ -51,30 +47,48 @@
     transform: translate(var(--x), -15px) rotate(-25deg);
     opacity: 0;
   }
+  /* --h is how far a bill falls (the svg's height in its own units) */
   @keyframes money-flutter {
     0% { transform: translate(var(--x), -15px) rotate(-25deg); opacity: 0; }
     10% { opacity: 1; }
-    25% { transform: translate(calc(var(--x) + 14px), 30px) rotate(25deg); }
-    50% { transform: translate(calc(var(--x) - 12px), 70px) rotate(-20deg); }
-    75% { transform: translate(calc(var(--x) + 12px), 110px) rotate(20deg); }
+    25% { transform: translate(calc(var(--x) + 14px), calc(var(--h) * 0.2)) rotate(25deg); }
+    50% { transform: translate(calc(var(--x) - 12px), calc(var(--h) * 0.47)) rotate(-20deg); }
+    75% { transform: translate(calc(var(--x) + 12px), calc(var(--h) * 0.73)) rotate(20deg); }
     90% { opacity: 1; }
-    100% { transform: translate(var(--x), 150px) rotate(-15deg); opacity: 0; }
+    100% { transform: translate(var(--x), var(--h)) rotate(-15deg); opacity: 0; }
   }
 </style>
 <script>
   (function () {
-    var bills = [[28, 0], [63, 0.45], [98, 0.9], [133, 1.35]].map(function (b, i) {
-      return '<g class="bill" style="--x:' + b[0] + 'px;animation-delay:-' + b[1] + 's;animation-duration:' + (2.2 + (i % 2) * 0.4) + 's">' +
-        '<rect x="-17" y="-9" width="34" height="18" rx="2.5" fill="#3fa468" stroke="#1f6b41" stroke-width="1.5"/>' +
-        '<circle r="5" fill="#2b8654" stroke="#bfe8cf" stroke-width="1"/>' +
-        '<text y="3.2" text-anchor="middle" font-size="8" font-weight="700" fill="#e9fbf0">$</text></g>';
-    }).join("");
-    var markup = '<svg viewBox="0 0 170 150" width="120" height="106" role="img" aria-label="Loading">' + bills + '</svg>';
+    // The bills' svg. `fill` makes it the shape of the screen, with the bills
+    // spread across the width and falling its whole height; otherwise it is the
+    // small 170x150 picture the page loader gets.
+    function bills(fill) {
+      var w = 170;
+      var h = fill ? Math.max(150, Math.round(w * innerHeight / innerWidth)) : 150;
+      var cols = fill ? 6 : 4;
+      var gap = (w - 34) / (cols - 1);
+      var out = "";
+      for (var i = 0; i < cols; i++) {
+        var x = Math.round(17 + i * gap);
+        // Two staggered rows of columns on a tall screen, so it isn't sparse
+        for (var r = 0; r < (fill && h > 260 ? 2 : 1); r++) {
+          var n = i + r * cols;
+          var delay = ((n * 0.45) % 2.4).toFixed(2);
+          out += '<g class="bill" style="--x:' + (r ? x + 14 : x) + 'px;--h:' + h + 'px;animation-delay:-' + delay + 's;animation-duration:' + (2.2 + (n % 2) * 0.4) + 's">' +
+            '<rect x="-17" y="-9" width="34" height="18" rx="2.5" fill="#3fa468" stroke="#1f6b41" stroke-width="1.5"/>' +
+            '<circle r="5" fill="#2b8654" stroke="#bfe8cf" stroke-width="1"/>' +
+            '<text y="3.2" text-anchor="middle" font-size="8" font-weight="700" fill="#e9fbf0">$</text></g>';
+        }
+      }
+      var size = fill ? "" : ' width="120" height="106"';
+      return '<svg viewBox="0 0 ' + w + " " + h + '"' + size + ' preserveAspectRatio="xMidYMid slice" role="img" aria-label="Loading">' + out + "</svg>";
+    }
     function swap() {
       document.querySelectorAll('svg.animate-spin[data-testid="large-spinner"]').forEach(function (spinner) {
         var box = document.createElement("div");
         box.className = "money-loader";
-        box.innerHTML = markup;
+        box.innerHTML = bills(false);
         spinner.replaceWith(box);
       });
       // The "cells are running" indicator: marimo's icon in it is hidden by the
@@ -83,7 +97,7 @@
         if (ind.querySelector(".money-loader")) return;
         var box = document.createElement("div");
         box.className = "money-loader";
-        box.innerHTML = markup;
+        box.innerHTML = bills(true);
         ind.appendChild(box);
       });
     }
