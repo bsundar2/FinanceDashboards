@@ -21,9 +21,30 @@
      notebook's own styles load), and marimo's spinning-circle loader swapped
      for dollar bills fluttering down. Only the big page loader is replaced
      (marimo marks it data-testid="large-spinner"); if marimo changes it, the spinner just stays.
-     The same bills fill the small "cells are running" indicator that finance_ui.py restyles. -->
+     The same bills fill the small "cells are running" indicator, centered by the CSS below. -->
 <style>
   html, body, #root { background: #0a0c0f !important; }
+  /* marimo's "running" indicator: the bills in the middle of the screen
+     instead of its hourglass in the top-left corner. Here rather than in the
+     notebooks' STYLE, which only arrives once the first cell has run, so the
+     indicator is centered from the very first load. Like the hourglass it
+     only appears once cells have run for a second, so a quick dropdown change
+     doesn't flash it. */
+  [data-testid="loading-indicator"] {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 120px;
+    height: 106px;
+    margin: -53px 0 0 -60px;
+    overflow: hidden;
+    border-radius: 12px;
+    box-shadow: 0 0 0 10px rgba(10, 12, 15, 0.85);
+    background: rgba(10, 12, 15, 0.85);
+    animation: t-appear 0.2s ease-out 1s both;
+  }
+  [data-testid="loading-indicator"] .running-app-icon { display: none; }
+  @keyframes t-appear { from { opacity: 0; } to { opacity: 1; } }
   .money-loader { display: flex; justify-content: center; }
   .money-loader .bill {
     animation: money-flutter 2.4s linear infinite;
@@ -56,8 +77,8 @@
         box.innerHTML = markup;
         spinner.replaceWith(box);
       });
-      // The "cells are running" indicator the notebooks restyle (finance_ui.py):
-      // marimo's icon in it is hidden, so put the bills in instead
+      // The "cells are running" indicator: marimo's icon in it is hidden by the
+      // CSS above, so put the bills in instead
       document.querySelectorAll('[data-testid="loading-indicator"]').forEach(function (ind) {
         if (ind.querySelector(".money-loader")) return;
         var box = document.createElement("div");
