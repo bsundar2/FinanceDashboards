@@ -423,7 +423,7 @@ def __(
     )
     mo.Html(f"""
     <div class="terminal">
-      <div class="t-section">{_scope} · {len(_rows)} rows · {money(_total)}</div>
+      <div class="t-section">{_scope} · {len(_rows)} rows</div>
       {table(_headers, _rows) if _rows else '<div class="t-note">Nothing to show.</div>'}
       <div class="t-note">{_note}</div>
     </div>""")
