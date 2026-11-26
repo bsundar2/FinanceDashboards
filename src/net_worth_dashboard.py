@@ -245,9 +245,7 @@ def __(
         f" · {_pct(_share)} of assets" if _share is not None else ""
     )
     if type_bar is not None:
-        _body = f"""<div class="t-chart">{type_bar}</div>
-        <div class="t-note">Grouped by the Net Worth tab's Type column (C). Click a type to filter the holdings
-        below; click it again to clear.</div>"""
+        _body = f'<div class="t-chart">{type_bar}</div>'
     elif nw_category in pf.ASSET_COMPONENTS:
         _body = '<div class="t-note">Its rows mix assets and debts, so it has no shares to draw; its total is the net.</div>'
     else:
