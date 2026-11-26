@@ -10,26 +10,6 @@ STYLE = """
          in .marimo.toml), so the gaps between sections don't show white */
       body { background: #0a0c0f; }
 
-      /* marimo's "running" indicator: a ring in the middle of the screen
-         instead of its hourglass in the top-left corner. Like the hourglass
-         it only appears once cells have run for a second, so a quick
-         dropdown change doesn't flash it. */
-      [data-testid="loading-indicator"] {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        width: 120px;
-        height: 106px;
-        margin: -53px 0 0 -60px;
-        overflow: hidden;
-        border-radius: 12px;
-        box-shadow: 0 0 0 10px rgba(10, 12, 15, 0.85);
-        background: rgba(10, 12, 15, 0.85);
-        animation: t-appear 0.2s ease-out 1s both;
-      }
-      [data-testid="loading-indicator"] .running-app-icon { display: none; }
-      @keyframes t-appear { from { opacity: 0; } to { opacity: 1; } }
-
       .terminal {
         background: #0a0c0f;
         color: #c8d0e0;
