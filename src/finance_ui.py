@@ -18,18 +18,16 @@ STYLE = """
         position: fixed;
         top: 50%;
         left: 50%;
-        width: 44px;
-        height: 44px;
-        margin: -22px 0 0 -22px;
-        border-radius: 50%;
-        border: 3px solid #1e2330;
-        border-top-color: #00d17a;
+        width: 120px;
+        height: 106px;
+        margin: -53px 0 0 -60px;
+        overflow: hidden;
+        border-radius: 12px;
         box-shadow: 0 0 0 10px rgba(10, 12, 15, 0.85);
         background: rgba(10, 12, 15, 0.85);
-        animation: t-spin 0.8s linear infinite, t-appear 0.2s ease-out 1s both;
+        animation: t-appear 0.2s ease-out 1s both;
       }
       [data-testid="loading-indicator"] .running-app-icon { display: none; }
-      @keyframes t-spin { to { transform: rotate(360deg); } }
       @keyframes t-appear { from { opacity: 0; } to { opacity: 1; } }
 
       .terminal {
