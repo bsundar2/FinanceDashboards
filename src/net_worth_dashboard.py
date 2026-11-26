@@ -412,11 +412,7 @@ def __(
     _note = (
         f"Couldn't read holdings_dump ({html.escape(holdings_error)}), so each account is shown as its balance."
         if holdings_error
-        else f"Securities come from the SimpleFIN holdings_dump tab, priced at its last refresh. Each Net Worth row "
-        f"takes the holdings accounts its Balance Key matches, or, without a key, an Investments or Retirement row takes "
-        f"its institution's accounts whose name contains its type (or the ones left over), scaled by My Share %. "
-        f'"{pf.CASH_AND_OTHER}" is the rest of the row\'s balance. When the holdings are worth more than the row '
-        f"(usually just prices moving since the sheet's value), there's no row for the difference."
+        else ""
     )
     _scope = " · ".join(
         html.escape(x) for x in [nw_category, nw_type, nw_account.value] if x
@@ -425,7 +421,7 @@ def __(
     <div class="terminal">
       <div class="t-section">{_scope} · {len(_rows)} rows</div>
       {table(_headers, _rows) if _rows else '<div class="t-note">Nothing to show.</div>'}
-      <div class="t-note">{_note}</div>
+      {f'<div class="t-note">{_note}</div>' if _note else ''}
     </div>""")
     return
 
