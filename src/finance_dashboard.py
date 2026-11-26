@@ -448,9 +448,6 @@ def __(
       {legend([html.escape(c) for c in _df.columns] + [f"{html.escape(_group)} total"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       {fold(f"{len(_rows)} sub-categories", f"{money(_total)} {_oo} one-offs", table(["Sub-category", f"Spent ({_oo} one-offs)", "Per month", "Spent (all)", "Budget to date", "Over / under"], _rows))}
-      <div class="t-note">Sub-categories are the Expense Log's categories, grouped as on the Monthly Expenses tab;
-      beyond eight the smallest are summed into Other. The chart {"counts" if include_one_offs.value else "leaves out"} one-offs, like the one above; the
-      last three columns count them, as the budget tables below do.</div>
     </div>""")
     return
 
@@ -650,10 +647,6 @@ def __(
       {legend([html.escape(b) for b in _names] + ["Take-home savings"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
       {fold(f"{len(savings)} months · {len(_names)} buckets", f"{money(_total)} take-home savings", table(["Month", *[html.escape(b) for b in _names], "Total", "Year to date"], _rows), "pos" if _total >= 0 else "neg")}
-      <div class="t-note">Take-home savings is the Monthly Savings Contributions rows at the bottom of the Net Worth tab, one bucket
-      per row, the same figure as the Budget tab's Take-Home Savings, so without the 401(k). Beyond eight buckets the smallest are summed into
-      Other, and a bar below zero is money taken out. It's what you logged as put away, not take-home minus spending,
-      so a big purchase paid from savings, like a down payment, doesn't lower it.</div>
     </div>""")
     return
 

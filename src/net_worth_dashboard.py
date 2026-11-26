@@ -245,9 +245,7 @@ def __(
         f" · {_pct(_share)} of assets" if _share is not None else ""
     )
     if type_bar is not None:
-        _body = f"""<div class="t-chart">{type_bar}</div>
-        <div class="t-note">Grouped by the Net Worth tab's Type column (C). Click a type to filter the holdings
-        below; click it again to clear.</div>"""
+        _body = f'<div class="t-chart">{type_bar}</div>'
     elif nw_category in pf.ASSET_COMPONENTS:
         _body = '<div class="t-note">Its rows mix assets and debts, so it has no shares to draw; its total is the net.</div>'
     else:
@@ -273,7 +271,6 @@ def __(
     month_labels,
     net_worth,
     nw_category,
-    pf,
     stacked_bars_svg,
     table,
 ):
@@ -309,9 +306,6 @@ def __(
     <div class="terminal">
       {legend([html.escape(a) for a in _accounts] + [nw_category + " total"], _colors + ["#e8edf5"])}
       <div class="t-chart">{_chart}</div>
-      <div class="t-note">The account rows above the subtotal on the Net Worth tab. Beyond seven accounts the
-      smallest are summed into Other, and "{pf.UNLISTED}" is whatever the subtotal holds that its account rows
-      don't add up to.</div>
       {fold(f"{len(_accounts)} accounts", f"{money(_total)} in {month_labels[-1]}", table(_headers, _rows), "pos" if _total >= 0 else "neg")}
     </div>""")
     return
@@ -414,20 +408,16 @@ def __(
     _note = (
         f"Couldn't read holdings_dump ({html.escape(holdings_error)}), so each account is shown as its balance."
         if holdings_error
-        else f"Securities come from the SimpleFIN holdings_dump tab, priced at its last refresh. Each Net Worth row "
-        f"takes the holdings accounts its Balance Key matches, or, without a key, an Investments or Retirement row takes "
-        f"its institution's accounts whose name contains its type (or the ones left over), scaled by My Share %. "
-        f'"{pf.CASH_AND_OTHER}" is the rest of the row\'s balance. When the holdings are worth more than the row '
-        f"(usually just prices moving since the sheet's value), there's no row for the difference."
+        else ""
     )
     _scope = " · ".join(
         html.escape(x) for x in [nw_category, nw_type, nw_account.value] if x
     )
     mo.Html(f"""
     <div class="terminal">
-      <div class="t-section">{_scope} · {len(_rows)} rows · {money(_total)}</div>
+      <div class="t-section">{_scope} · {len(_rows)} rows</div>
       {table(_headers, _rows) if _rows else '<div class="t-note">Nothing to show.</div>'}
-      <div class="t-note">{_note}</div>
+      {f'<div class="t-note">{_note}</div>' if _note else ''}
     </div>""")
     return
 
