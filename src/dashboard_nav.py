@@ -52,12 +52,29 @@ _STYLE = """
   .t-nav a { color: #8a93a6; text-decoration: none; padding-bottom: 0.2rem; white-space: nowrap; }
   .t-nav a:hover { color: #e8edf5; }
   .t-nav a.active { color: #E8890C; border-bottom: 2px solid #E8890C; }
+  .t-nav-demo {
+    margin-left: auto;
+    align-self: center;
+    padding: 0.15rem 0.7rem;
+    border: 1px solid #2896f0;
+    border-radius: 999px;
+    color: #2896f0;
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    white-space: nowrap;
+  }
   .t-nav-ext { display: inline-block; margin-left: 0.4em; vertical-align: 0.05em; opacity: 0.7; }
 </style>
 """
 
 
 _ACTIVE = ' class="active"'
+
+
+def demo_mode() -> bool:
+    """DEMO_MODE=1 marks a deployment that shows made-up data (the same flag
+    src/dashboard_server.py reads)."""
+    return os.environ.get("DEMO_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def nav_links(current: str) -> list[tuple[str, str, bool, bool]]:
@@ -83,4 +100,6 @@ def nav_html(current: str) -> str:
             f'<a href="{html.escape(url)}" target="_top"{attrs}>'
             f"{html.escape(label)}{icon}</a>"
         )
+    if demo_mode():
+        items.append('<span class="t-nav-demo" title="Made-up data">Demo data</span>')
     return f'{_STYLE}<nav class="t-nav">{"".join(items)}</nav>'

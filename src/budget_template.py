@@ -32,7 +32,9 @@ import datetime
 from dataclasses import dataclass, field
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.chart import BarChart, LineChart, Reference, Series
+from openpyxl.formatting.rule import CellIsRule, ColorScaleRule, FormulaRule
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 SETTINGS = "Settings"
@@ -46,6 +48,7 @@ EXPENSE_LOGS = [EXPENSE_LOG, PARTNER_EXPENSE_LOG]
 ACCOUNTS = "Accounts"
 NET_WORTH = "Net Worth"
 DASHBOARD = "Dashboard"
+SAVINGS_LOG = "Savings Log"
 
 YEAR_CELL = f"{SETTINGS}!$B$5"
 PAYCHECKS_CELL = f"{SETTINGS}!$B$6"
@@ -122,15 +125,38 @@ IMPORTED_BLOCKS = ["G", "L"]
 # each person
 INCOME_COLUMNS = ["CDEF", "HIJK"]
 
-INPUT_FILL = PatternFill("solid", fgColor="FFF2CC")
-INPUT_FONT = Font(color="1F4E9E")
-HEADER_FILL = PatternFill("solid", fgColor="1F2937")
-HEADER_FONT = Font(bold=True, color="FFFFFF")
-SECTION_FILL = PatternFill("solid", fgColor="E5E7EB")
-TOTAL_FONT = Font(bold=True)
-TITLE_FONT = Font(bold=True, size=14)
-MONEY = '"$"#,##0.00;[Red]-"$"#,##0.00'
-PERCENT = "0.0%"
+# The look of the original single-person sheet: Arial on white, a light grey
+# palette, amber inputs, no gridlines and a colour per tab
+FONT = "Arial"
+INK, BODY, MUTED = "1A1B1E", "5C5F6B", "9295A0"
+GREEN, RED, BLUE = "1A7A4A", "B5395A", "3B66CC"
+GOOD, BAD = "274E13", "B5395A"  # a figure that beat / missed its budget
+
+
+def _fill(color: str) -> PatternFill:
+    return PatternFill("solid", fgColor=color)
+
+
+INPUT_FILL = _fill("FFFBF0")
+INPUT_FONT = Font(name=FONT, size=10, color="9A6B00")
+HEADER_FILL = _fill("F0F2F5")
+HEADER_FONT = Font(name=FONT, size=8, bold=True, color=MUTED)
+SECTION_FILL = _fill("EAECF0")
+LABEL_FILL = _fill("F7F8FA")
+TOTAL_FONT = Font(name=FONT, size=10, bold=True, color=INK)
+TITLE_FONT = Font(name=FONT, size=22, bold=True, color=INK)
+SUBTITLE_FONT = Font(name=FONT, size=11, italic=True, color=BODY)
+BODY_FONT = Font(name=FONT, size=10, color=BODY)
+MONEY = r'\$#,##0.00_);[RED]"($"#,##0.00\)'
+TILE_MONEY = r'\$#,##0_);[RED]"($"#,##0\)'
+PERCENT = r"0.0%;\-0.0%;\-"
+
+TAB_COLORS = {
+    INSTRUCTIONS: MUTED, SETTINGS: MUTED, INCOME: GREEN, BUDGET: BLUE,
+    MONTHLY_EXPENSES: GREEN, EXPENSE_LOG: MUTED, PARTNER_EXPENSE_LOG: MUTED,
+    ACCOUNTS: "6B3FCC", NET_WORTH: "6B3FCC", SAVINGS_LOG: MUTED,
+    DASHBOARD: "1A6B8A",
+}  # fmt: skip
 
 
 @dataclass
@@ -284,19 +310,40 @@ def _header(ws, row: int, labels: list, start_col: int = 1):
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = Alignment(wrap_text=True, vertical="center")
+    ws.row_dimensions[row].height = 24
 
 
-def _section(ws, row: int, label: str, width: int):
-    ws.cell(row=row, column=1, value=label).font = TOTAL_FONT
+def _section(ws, row: int, label: str, width: int, merge_to: int | None = None):
+    """A section bar: its label across the first columns (merged), the band
+    across all of them."""
     for col in range(1, width + 1):
         ws.cell(row=row, column=col).fill = SECTION_FILL
+    ws.cell(row=row, column=1, value=label).font = TOTAL_FONT
+    ws.merge_cells(start_row=row, start_column=1, end_row=row,
+                   end_column=merge_to or width)  # fmt: skip
+    ws.row_dimensions[row].height = 19.5
 
 
-def _title(ws, title: str, subtitle: str):
-    ws["A1"] = title
-    ws["A1"].font = TITLE_FONT
-    ws["A2"] = subtitle
-    ws["A2"].font = Font(italic=True, color="6B7280")
+def _band(ws, row: int, first_col: int, last_col: int, fill=SECTION_FILL):
+    """A total row: bold on a grey band, keeping each cell's number format."""
+    for col in range(first_col, last_col + 1):
+        cell = ws.cell(row=row, column=col)
+        cell.fill = fill
+        cell.font = TOTAL_FONT
+
+
+def _title(ws, title: str, subtitle: str, span: int = 8, subtitle_height=20):
+    """The title and subtitle bars across the first `span` columns."""
+    ws["A1"], ws["A2"] = title, subtitle
+    ws["A1"].font, ws["A2"].font = TITLE_FONT, SUBTITLE_FONT
+    ws["A1"].alignment = Alignment(vertical="center")
+    ws["A2"].alignment = Alignment(vertical="center", wrap_text=True)
+    for col in range(1, span + 1):
+        ws.cell(row=2, column=col).fill = LABEL_FILL
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=span)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=span)
+    ws.row_dimensions[1].height = 48
+    ws.row_dimensions[2].height = subtitle_height
 
 
 def _widths(ws, widths: dict):
@@ -353,7 +400,7 @@ def plan_layout(spec: BudgetSpec) -> _Layout:
 
 
 def _build_settings(ws, spec: BudgetSpec):
-    _title(ws, "Settings", "Every other tab reads these - fill them in first")
+    _title(ws, "Settings", "Every other tab reads these - fill them in first", span=3)
     rows = [
         ("Your name", spec.name, None, "Heads your columns and rows"),
         ("Partner's name", spec.partner, None,
@@ -440,6 +487,7 @@ def _build_income(ws, spec: BudgetSpec):
     _title(
         ws, "Income & Taxes",
         "Each person's pay from a pay stub — enter amber cells only; the Budget tab adds the two up",
+        span=2, subtitle_height=36,  # C2 and H2 name each person
     )  # fmt: skip
     ws["C2"], ws["H2"] = f"={NAME}", f"={PARTNER_NAME}"
     ws["C2"].font = ws["H2"].font = TOTAL_FONT
@@ -474,6 +522,7 @@ def _build_budget(ws, spec: BudgetSpec, layout: _Layout):
     _title(
         ws, "Household Budget",
         "Pay comes from the Income tab, spending from both Expense Logs — enter a yearly budget per category (amber)",
+        span=9,
     )  # fmt: skip
     _header(
         ws, 3,
@@ -498,8 +547,8 @@ def _build_budget(ws, spec: BudgetSpec, layout: _Layout):
         if row not in (5, 6, 7):
             ws[f"G{row}"] = f'=IFERROR(D{row}/$D$7,"-")'
             ws[f"G{row}"].number_format = PERCENT
-    for coordinate in ("A7", "B7", "A13", "B13", "A19", "B19"):
-        ws[coordinate].font = TOTAL_FONT
+    for row in (7, 13, 19):
+        _band(ws, row, 1, 8)
 
     first, last = layout.first_category, layout.last_category
     year_start = f"DATE({YEAR_CELL},1,1)"
@@ -553,7 +602,7 @@ def _build_budget(ws, spec: BudgetSpec, layout: _Layout):
     ws[f"G{all_savings}"] = f'=IFERROR(D{all_savings}/$D$7,"-")'
 
     for row in (total, saving, all_savings):
-        ws[f"A{row}"].font = ws[f"B{row}"].font = TOTAL_FONT
+        _band(ws, row, 1, 8)
         for col in "CDEF":
             ws[f"{col}{row}"].number_format = MONEY
         for col in "GH":
@@ -567,12 +616,13 @@ def _build_monthly_expenses(ws, spec: BudgetSpec, layout: _Layout):
     _title(
         ws, "Monthly Expense Tracker",
         "Both Expense Logs by month (each person's share of every expense) — budgets come from the Budget tab",
+        span=8,
     )  # fmt: skip
     months = [calendar.month_abbr[m] for m in range(1, 13)]
     _header(
         ws, 4,
         ["Category", "Sub-Category", "Monthly\nBudget", *months, "YTD\nActual",
-         "Annual\nBudget", "Variance\n(Budget−Actual)", "Over Budget"],
+         "Annual\nBudget", "Variance\n(Budget−Actual)"],
     )  # fmt: skip
     for offset in range(len(spec.categories)):
         row = layout.me_first + offset
@@ -589,23 +639,21 @@ def _build_monthly_expenses(ws, spec: BudgetSpec, layout: _Layout):
         ws[f"P{row}"] = f"=SUM(D{row}:O{row})"
         ws[f"Q{row}"] = f"={BUDGET}!D{source}"
         ws[f"R{row}"] = f"=Q{row}-P{row}"
-        ws[f"S{row}"] = f"=MAX(0,P{row}-Q{row})"
     total = layout.me_total
     ws[f"A{total}"] = "TOTAL EXPENSES"
-    ws[f"A{total}"].font = TOTAL_FONT
-    for col in range(3, 20):
+    for col in range(3, 19):
         letter = column_letter(col)
         ws[f"{letter}{total}"] = (
             f"=Q{total}-P{total}"
             if letter == "R"
             else f"=SUM({letter}{layout.me_first}:{letter}{layout.me_last})"
         )
-        ws[f"{letter}{total}"].font = TOTAL_FONT
+    _band(ws, total, 1, 18)
     for row in ws.iter_rows(min_row=layout.me_first, max_row=total, min_col=3):
         for cell in row:
             cell.number_format = MONEY
     ws.freeze_panes = "C5"
-    _widths(ws, {"A": 16, "B": 24, **{column_letter(c): 12 for c in range(3, 20)}})
+    _widths(ws, {"A": 16, "B": 24, **{column_letter(c): 12 for c in range(3, 19)}})
 
 
 def _build_expense_log(ws, rows: list):
@@ -622,6 +670,7 @@ def _build_accounts(ws, spec: BudgetSpec):
     _title(
         ws, "Accounts",
         "Balances the Net Worth tab looks up by its Balance Key column",
+        span=5,
     )  # fmt: skip
     ws["A3"] = "Entered by hand"
     ws["G3"] = '="Imported for "&' + NAME + '&" (optional)"'
@@ -687,6 +736,7 @@ def _build_net_worth(ws, spec: BudgetSpec, layout: _Layout):
         ws, "Net Worth Tracker",
         "Every account once, at its full balance, with each person's % · rows with a Balance Key "
         "fill in from Accounts · paste values over a month at month end to freeze it",
+        span=7, subtitle_height=36,
     )  # fmt: skip
     months = [calendar.month_abbr[m] for m in range(1, 13)]
     _header(
@@ -704,7 +754,7 @@ def _build_net_worth(ws, spec: BudgetSpec, layout: _Layout):
 
     for section, rows in enumerate(spec.net_worth):
         first, last = layout.nw_rows[section]
-        _section(ws, first - 1, SECTIONS[section][0], NW_CHANGE_COL)
+        _section(ws, first - 1, SECTIONS[section][0], NW_CHANGE_COL, merge_to=4)
         for offset, item in enumerate(rows):
             row = first + offset
             ws[f"B{row}"], ws[f"C{row}"], ws[f"D{row}"] = (
@@ -742,6 +792,7 @@ def _build_net_worth(ws, spec: BudgetSpec, layout: _Layout):
             )
             ws[f"{letter}{subtotal}"].font = TOTAL_FONT
         ws[f"{change}{subtotal}"] = f"={current}{subtotal}-{first_month}{subtotal}"
+        _band(ws, subtotal, 1, NW_CHANGE_COL)
 
     total = layout.nw_total
     ws[f"A{total}"] = NET_WORTH_LABEL
@@ -752,6 +803,7 @@ def _build_net_worth(ws, spec: BudgetSpec, layout: _Layout):
         ws[f"{letter}{total}"] = "=" + "+".join(f"{letter}{r}" for r in subtotals)
         ws[f"{letter}{total}"].font = TOTAL_FONT
     ws[f"{change}{total}"] = f"={current}{total}-{first_month}{total}"
+    _band(ws, total, 1, NW_CHANGE_COL)
 
     # Each person's net worth: every row above at their % (section titles
     # and subtotals have no %, so they count as 0)
@@ -763,10 +815,9 @@ def _build_net_worth(ws, spec: BudgetSpec, layout: _Layout):
             letter = column_letter(month_col)
             ws[f"{letter}{row}"] = _weighted(letter, 5, total - 1, col)
         ws[f"{change}{row}"] = f"={current}{row}-{first_month}{row}"
+        _band(ws, row, 1, NW_CHANGE_COL, LABEL_FILL)
 
-    ws.cell(row=layout.contrib_first - 1, column=1, value=CONTRIBUTIONS_LABEL).font = (
-        TOTAL_FONT
-    )
+    _section(ws, layout.contrib_first - 1, CONTRIBUTIONS_LABEL, NW_CHANGE_COL, 4)
     for offset, item in enumerate(spec.contributions):
         row = layout.contrib_first + offset
         ws[f"B{row}"], ws[f"C{row}"] = item.type, item.detail
@@ -787,6 +838,7 @@ def _build_net_worth(ws, spec: BudgetSpec, layout: _Layout):
     ws[f"{current}{contrib_total}"] = (
         f"=SUM({first_month}{contrib_total}:{last_month}{contrib_total})"
     )
+    _band(ws, contrib_total, 1, NW_CHANGE_COL)
     gains = layout.market_gains
     ws[f"A{gains}"] = "Market Gains / (Losses)  =  Net Worth Change − Contributions"
     ws[f"{current}{gains}"] = (
@@ -805,11 +857,100 @@ def _build_net_worth(ws, spec: BudgetSpec, layout: _Layout):
                  **{column_letter(c): 13 for c in range(NW_FIRST_MONTH_COL, NW_CHANGE_COL + 1)}})  # fmt: skip
 
 
-def _kpi(ws, row: int, col: int, label: str, formula: str, fmt=MONEY):
-    ws.cell(row=row, column=col, value=label).font = Font(bold=True, color="6B7280")
+# Dividends, interest and realized gains the sheet's owner logs by hand (the
+# dashboard reads them by the start of the label in column A)
+SAVINGS_LOG_ROWS = [
+    ("Dividends Received", "Paid into your accounts this year"),
+    ("Interest", "Interest earned this year"),
+    ("Stock Gain/Loss", "Realized gain or loss on stock sales this year"),
+]
+
+
+def _build_savings_log(ws):
+    _title(
+        ws, "Savings Log",
+        "Investment income for the year, entered by hand — the Dashboard's income tiles read column B",
+        span=3,
+    )  # fmt: skip
+    _header(ws, 4, ["Item", "YTD", "Notes"])
+    for offset, (label, note) in enumerate(SAVINGS_LOG_ROWS):
+        row = 5 + offset
+        ws[f"A{row}"] = label
+        _input(ws[f"B{row}"])
+        ws[f"C{row}"] = note
+    _widths(ws, {"A": 24, "B": 16, "C": 56})
+
+
+# Dashboard tiles: a label bar over a value, each two columns wide
+_TILE_LABEL = Font(name=FONT, size=8, bold=True, color=MUTED)
+_TILE_VALUE = Font(name=FONT, size=18, bold=True, color=INK)
+_TILE_EDGE = Border(top=Side(style="medium", color=BLUE))
+
+
+def _kpi(ws, row: int, col: int, label: str, formula: str, fmt=TILE_MONEY):
+    first, last = column_letter(col), column_letter(col + 1)
+    for line in (row, row + 1):
+        ws.merge_cells(f"{first}{line}:{last}{line}")
+    for offset in (0, 1):
+        ws.cell(row=row, column=col + offset).fill = LABEL_FILL
+        edge = ws.cell(row=row + 1, column=col + offset)
+        edge.fill, edge.border = _fill("FFFFFF"), _TILE_EDGE
+    ws.cell(row=row, column=col, value=label).font = _TILE_LABEL
+    ws.cell(row=row, column=col).alignment = Alignment(vertical="center")
     value = ws.cell(row=row + 1, column=col, value=formula)
-    value.font = Font(bold=True, size=13)
-    value.number_format = fmt
+    value.font, value.number_format = _TILE_VALUE, fmt
+    value.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 18
+    ws.row_dimensions[row + 1].height = 36
+    ws.row_dimensions[row + 2].height = 11.25  # the gap under a tile row
+
+
+def _dashboard_formatting(ws, tiles: list, first: int, last: int, top: tuple):
+    """Green and red figures: actual against budget, gains and losses, a
+    category on track or over, and a shade for each category's share."""
+    good, bad = Font(color=GOOD, bold=True), Font(color=BAD, bold=True)
+    for cols, higher_is_better in (("A", True), ("C", True), ("E", False), ("G", True)):
+        actual, budget = f"{cols}8:{chr(ord(cols) + 1)}8", f"{cols}5"
+        better, worse = ("greaterThan", "lessThanOrEqual") if higher_is_better else (
+            "lessThan", "greaterThanOrEqual"
+        )  # fmt: skip
+        ws.conditional_formatting.add(actual, CellIsRule(better, [budget], font=good))
+        ws.conditional_formatting.add(actual, CellIsRule(worse, [budget], font=bad))
+    for ref in tiles:  # tiles that are a gain or a loss
+        ws.conditional_formatting.add(ref, CellIsRule("greaterThan", ["0"], font=good))
+        ws.conditional_formatting.add(ref, CellIsRule("lessThan", ["0"], font=bad))
+    status = f"G{first}:G{last}"
+    for word, font in (("on track", good), ("over", bad)):
+        ws.conditional_formatting.add(
+            status,
+            FormulaRule(
+                formula=[f'NOT(ISERROR(SEARCH("{word}",G{first})))'], font=font
+            ),
+        )
+    ws.conditional_formatting.add(
+        f"E{top[0]}:E{top[1]}",
+        ColorScaleRule(start_type="min", start_color="FFFFFF",
+                       end_type="max", end_color="F4CCCC"),
+    )  # fmt: skip
+
+
+def _chart(ws, chart, title, sheet, row: int, first_col: int, header_row: int,
+           anchor_row: int, color=None):  # fmt: skip
+    """A chart of one row of a sheet (twelve months), titled and placed under
+    the Dashboard's tables."""
+    values = Reference(sheet, min_col=first_col, max_col=first_col + 11, min_row=row)
+    series = Series(values, title=title)
+    if color:
+        series.graphicalProperties.solidFill = color
+        series.graphicalProperties.line.solidFill = color
+    chart.series.append(series)
+    chart.set_categories(
+        Reference(sheet, min_col=first_col, max_col=first_col + 11, min_row=header_row)
+    )
+    chart.title = title
+    chart.width, chart.height = 17, 7.5
+    chart.legend.position = "r"
+    ws.add_chart(chart, f"A{anchor_row}")
 
 
 def _build_dashboard(ws, spec: BudgetSpec, layout: _Layout):
@@ -817,8 +958,18 @@ def _build_dashboard(ws, spec: BudgetSpec, layout: _Layout):
         f'="Household Finance Dashboard · "&{SETTINGS}!B3'
         f'&IF({SETTINGS}!B4="",""," & "&{SETTINGS}!B4)&" · "&{YEAR_CELL}'
     )
-    ws["A1"].font = TITLE_FONT
     ws["A2"] = "Everything here fills in from the other tabs"
+    ws["A1"].font, ws["A2"].font = TITLE_FONT, Font(
+        name=FONT, size=9, italic=True, color=MUTED
+    )
+    ws["A1"].alignment = Alignment(vertical="center")
+    for col in range(1, 9):
+        ws.cell(row=2, column=col).fill = LABEL_FILL
+    ws.merge_cells("A1:H1")
+    ws.merge_cells("A2:H2")
+    ws.row_dimensions[1].height = 51.75
+    ws.row_dimensions[2].height = 15.75
+    ws.row_dimensions[3].height = 9.75
     total, saving = layout.total_expenses, layout.take_home_savings
     nw_current = f"'{NET_WORTH}'!{column_letter(NW_CURRENT_COL)}"
     nw_change = f"'{NET_WORTH}'!{column_letter(NW_CHANGE_COL)}"
@@ -849,15 +1000,27 @@ def _build_dashboard(ws, spec: BudgetSpec, layout: _Layout):
               (f'=UPPER({PARTNER_NAME})&" · NET WORTH"', f"={nw_current}{partners}"),
               (f'=UPPER({NAME})&" · YTD SPENDING"', spent[0]),
               (f'=UPPER({PARTNER_NAME})&" · YTD SPENDING"', spent[1])]),
+        (19, [("YTD DIVIDENDS", f"='{SAVINGS_LOG}'!B5"),
+              ("YTD INTEREST", f"='{SAVINGS_LOG}'!B6"),
+              ("YTD REALIZED GAIN/LOSS", f"='{SAVINGS_LOG}'!B7"),
+              ("DIVIDENDS + INTEREST % (TAKE-HOME)",
+               f"=IFERROR((A20+C20)/{BUDGET}!C19,0)")]),
     ]  # fmt: skip
     for row, items in kpis:
         for index, (label, formula) in enumerate(items):
-            fmt = PERCENT if label.endswith(("RATE", "%")) else MONEY
-            _kpi(ws, row, 1 + index * 2, label, formula, fmt)
+            percent = "%" in label or label.endswith("RATE")
+            _kpi(
+                ws,
+                row,
+                1 + index * 2,
+                label,
+                formula,
+                PERCENT if percent else TILE_MONEY,
+            )
+        ws[f"A{row + 1}"].number_format = ws[f"A{row + 1}"].number_format
 
-    row = 19
-    ws[f"A{row}"] = "BUDGET VS. ACTUAL  ·  YTD EXPENSE SUMMARY"
-    ws[f"A{row}"].font = TOTAL_FONT
+    row = 22
+    _section(ws, row, "BUDGET VS. ACTUAL  ·  YTD EXPENSE SUMMARY", 8)
     _header(
         ws, row + 1,
         ["CATEGORY", "LINE ITEM", "MONTHLY BUDGET", "YTD ACTUAL", "ANNUAL BUDGET",
@@ -878,52 +1041,49 @@ def _build_dashboard(ws, spec: BudgetSpec, layout: _Layout):
         ws[f"{col}{r}"] = f"=SUM({col}{first}:{col}{last})"
     ws[f"F{r}"] = f"=E{r}-D{r}"
     ws[f"G{r}"] = f'=IF(F{r}>=0,"✅ On Budget","🔴 Over Budget")'
-    ws[f"A{r}"].font = TOTAL_FONT
+    _band(ws, r, 1, 7)
     for cells in ws.iter_rows(min_row=first, max_row=r, min_col=3, max_col=6):
         for cell in cells:
             cell.number_format = MONEY
 
-    # Top 5 lists with LARGE/INDEX/MATCH, which Google Sheets, Excel and
-    # LibreOffice all evaluate the same way
+    # Top 5 lists as one spilling formula each, the original sheet's own
+    # ARRAY_CONSTRAIN(SORT(...)): Google Sheets only, which is where the
+    # template is imported. The first cell fills its row and the four below.
     budget_first, budget_last = layout.first_category, layout.last_category
-    spend = f"{BUDGET}!$C${budget_first}:$C${budget_last}"
     r += 3
-    ws[f"A{r}"] = "TOP 5 BY SPEND  ·  YTD"
-    ws[f"A{r}"].font = TOTAL_FONT
+    _section(ws, r, "TOP 5 BY SPEND  ·  YTD", 8)
     _header(
         ws, r + 1, ["CATEGORY", "LINE ITEM", "YTD SPEND", "BUDGET", "% TOTAL SPEND"]
     )
-    for k in range(1, 6):
-        row = r + 1 + k
-        match = f"MATCH(C{row},{spend},0)"
-        ws[f"C{row}"] = f"=LARGE({spend},{k})"
-        ws[f"A{row}"] = f"=INDEX({BUDGET}!$A${budget_first}:$A${budget_last},{match})"
-        ws[f"B{row}"] = f"=INDEX({BUDGET}!$B${budget_first}:$B${budget_last},{match})"
-        ws[f"D{row}"] = f"=INDEX({BUDGET}!$D${budget_first}:$D${budget_last},{match})"
+    top = (r + 2, r + 6)
+    ws[f"A{r + 2}"] = (
+        f"=ARRAY_CONSTRAIN(ARRAYFORMULA(SORT({BUDGET}!A{budget_first}:D{budget_last}"
+        ", 3, FALSE)), 5, 4)"
+    )
+    for row in range(r + 2, r + 7):
         ws[f"E{row}"] = f"=IFERROR(C{row}/{BUDGET}!$C${total},0)"
         ws[f"C{row}"].number_format = ws[f"D{row}"].number_format = MONEY
         ws[f"E{row}"].number_format = PERCENT
 
-    over = f"{me}!$S${layout.me_first}:$S${layout.me_last}"
+    # Over budget: category, item, YTD, budget and the overage, biggest first
+    # (blank when nothing is over)
+    rows = f"{layout.me_first}", f"{layout.me_last}"
+    col = lambda c: f"{me}!{c}{rows[0]}:{c}{rows[1]}"
+    ws_over = (
+        f"=IFERROR(ARRAY_CONSTRAIN(ARRAYFORMULA(SORT(FILTER({{{me}!A{rows[0]}:B{rows[1]},"
+        f"{me}!P{rows[0]}:Q{rows[1]},{col('P')}-{col('Q')}}},{col('P')}>{col('Q')}),"
+        ' 5, FALSE)), 5, 5),"")'
+    )
     r += 9
-    ws[f"A{r}"] = "TOP 5 OVERSPEND  ·  YTD"
-    ws[f"A{r}"].font = TOTAL_FONT
+    _section(ws, r, "TOP 5 OVERSPEND  ·  YTD", 8)
     _header(ws, r + 1, ["CATEGORY", "LINE ITEM", "YTD SPEND", "BUDGET", "OVER BY"])
-    for k in range(1, 6):
-        row = r + 1 + k
-        match = f"MATCH(E{row},{over},0)"
-        ws[f"E{row}"] = f'=IF(LARGE({over},{k})>0,LARGE({over},{k}),"")'
-        for col, source in (("A", "A"), ("B", "B"), ("C", "P"), ("D", "Q")):
-            ws[f"{col}{row}"] = (
-                f'=IF(E{row}="","",INDEX({me}!${source}${layout.me_first}:'
-                f"${source}${layout.me_last},{match}))"
-            )
-        for col in "CDE":
-            ws[f"{col}{row}"].number_format = MONEY
+    ws[f"A{r + 2}"] = ws_over
+    for row in range(r + 2, r + 7):
+        for col_letter in "CDE":
+            ws[f"{col_letter}{row}"].number_format = MONEY
 
     r += 9
-    ws[f"A{r}"] = "SPENDING BY PERSON  ·  YTD"
-    ws[f"A{r}"].font = TOTAL_FONT
+    _section(ws, r, "SPENDING BY PERSON  ·  YTD", 8)
     _header(ws, r + 1, ["PERSON", "THEIR SHARE", "TRANSACTIONS", "% OF HOUSEHOLD"])
     for k, (name, log, total_spent) in enumerate(
         zip([NAME, PARTNER_NAME], EXPENSE_LOGS, spent)
@@ -938,7 +1098,24 @@ def _build_dashboard(ws, spec: BudgetSpec, layout: _Layout):
         ws[f"D{row}"] = f"=IFERROR(B{row}/SUM($B${r + 2}:$B${r + 3}),0)"
         ws[f"B{row}"].number_format = MONEY
         ws[f"D{row}"].number_format = PERCENT
-    _widths(ws, {c: 18 for c in "ABCDEFGH"})
+
+    # The three charts under the tables, as on the original sheet
+    book = ws.parent
+    expenses, net_worth = book[MONTHLY_EXPENSES], book[NET_WORTH]
+    first_month = NW_FIRST_MONTH_COL
+    anchor = r + 6
+    _chart(ws, BarChart(), "Spend by Month", expenses, layout.me_total, 4, 4,
+           anchor, "660000")  # fmt: skip
+    _chart(ws, BarChart(), "Savings by Month", net_worth, layout.contrib_total,
+           first_month, 4, anchor + 17, "B6D7A8")  # fmt: skip
+    _chart(ws, LineChart(), "Net Worth by Month", net_worth, layout.nw_total,
+           first_month, 4, anchor + 34)  # fmt: skip
+
+    _dashboard_formatting(ws, ["C14:H14"], first, last, top)
+    _widths(
+        ws,
+        {"A": 14, "B": 18, "C": 16, "D": 14, "E": 15, "F": 13.4, "G": 18.4, "H": 8.4},
+    )
 
 
 _INSTRUCTIONS = [
@@ -952,7 +1129,8 @@ _INSTRUCTIONS = [
     ("Step 4  ·  🧾 Expense Logs", "Expense Log is yours and Partner Expense Log is your partner's: each filled by that person's SplitwiseToSheets (--worksheet / EXPENSES_WORKSHEET_NAME), or a pasted Splitwise CSV export (Date, Amount, Category, ... My Owed in column I)"),
     ("Step 5  ·  🏦 Accounts", "Enter balances by hand, and/or import each person's SimpleFIN balances with IMPORTRANGE (yours into G5, your partner's into L5)"),
     ("Step 6  ·  📈 Net Worth", "List every account once with a Balance Key (an Accounts label, or part of an imported account name like \"(1111)\") and each person's %"),
-    ("Step 7  ·  📊 Dashboard", "Fills in from everything above"),
+    ("Step 7  ·  💹 Savings Log", "Dividends, interest and realized gains for the year, if you track them: the Dashboard's income tiles read column B"),
+    ("Step 8  ·  📊 Dashboard", "Fills in from everything above"),
     ("", None),
     ("HOW THE HOUSEHOLD ADDS UP", None),
     ("  Spending", "Each Expense Log's My Owed is that person's share of every expense, whoever paid. A bill you split shows up in both logs, each with its own share, so the two logs add up to the full cost without counting it twice."),
@@ -973,9 +1151,50 @@ def _build_instructions(ws):
         row = 1 + offset
         ws[f"B{row}"] = label or None
         ws[f"C{row}"] = text
-        if text is None and label:
-            ws[f"B{row}"].font = TITLE_FONT if row == 1 else TOTAL_FONT
-    _widths(ws, {"A": 3, "B": 30, "C": 110})
+        if row == 1:
+            ws[f"B{row}"].font = TITLE_FONT
+            ws.row_dimensions[row].height = 51.75
+        elif row == 2:
+            ws[f"B{row}"].font = SUBTITLE_FONT
+            ws[f"B{row}"].alignment = Alignment(wrap_text=True, vertical="center")
+            ws.row_dimensions[row].height = 30
+        elif text is None and label:  # a section bar
+            for col in "BC":
+                ws[f"{col}{row}"].fill = LABEL_FILL
+            ws[f"B{row}"].font = HEADER_FONT
+            ws.row_dimensions[row].height = 21.75
+        elif label:
+            ws[f"B{row}"].font = TOTAL_FONT
+            ws[f"C{row}"].font = BODY_FONT
+            ws[f"C{row}"].alignment = Alignment(wrap_text=True, vertical="center")
+            ws[f"B{row}"].alignment = Alignment(vertical="center")
+            ws.row_dimensions[row].height = 21.75 if len(text or "") < 95 else 34
+    ws.merge_cells("B1:C1")
+    ws.merge_cells("B2:C2")
+    _widths(ws, {"A": 3, "B": 43.4, "C": 86.7})
+
+
+def _apply_theme(wb):
+    """What every tab shares: Arial throughout, no gridlines, a colour per
+    tab and the row heights of the original sheet."""
+    for ws in wb:
+        ws.sheet_view.showGridLines = False
+        ws.sheet_properties.tabColor = TAB_COLORS.get(ws.title, MUTED)
+        logs = ws.title in EXPENSE_LOGS
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value is None or cell.font.name == FONT:
+                    continue
+                old = cell.font
+                cell.font = Font(
+                    name=FONT, size=10 if old.sz in (None, 11) else old.sz,
+                    bold=old.b, italic=old.i, color=old.color or BODY,
+                )  # fmt: skip
+        if ws.title == INSTRUCTIONS:
+            continue
+        for number in range(3 if not logs else 2, ws.max_row + 1):
+            if ws.row_dimensions[number].height is None:
+                ws.row_dimensions[number].height = 22.5 if logs else 21.75
 
 
 def build_workbook(spec: BudgetSpec) -> Workbook:
@@ -996,9 +1215,11 @@ def build_workbook(spec: BudgetSpec) -> Workbook:
         ),
         (ACCOUNTS, lambda ws: _build_accounts(ws, spec)),
         (NET_WORTH, lambda ws: _build_net_worth(ws, spec, layout)),
+        (SAVINGS_LOG, _build_savings_log),
         (DASHBOARD, lambda ws: _build_dashboard(ws, spec, layout)),
     ]:
         build(wb.create_sheet(title))
+    _apply_theme(wb)
     return wb
 
 

@@ -80,7 +80,7 @@ class TestBuildWorkbook:
         assert wb.sheetnames == [
             bt.INSTRUCTIONS, bt.SETTINGS, bt.INCOME, bt.BUDGET,
             bt.MONTHLY_EXPENSES, bt.EXPENSE_LOG, bt.PARTNER_EXPENSE_LOG,
-            bt.ACCOUNTS, bt.NET_WORTH, bt.DASHBOARD,
+            bt.ACCOUNTS, bt.NET_WORTH, bt.SAVINGS_LOG, bt.DASHBOARD,
         ]  # fmt: skip
 
     def test_default_categories_are_splitwises(self):
@@ -88,6 +88,48 @@ class TestBuildWorkbook:
         names = [wb[bt.BUDGET].cell(row=r, column=2).value for r in range(21, 21 + 43)]
         assert names[0] == "Cleaning" and names[-1] == "Taxes"
         assert wb[bt.BUDGET]["B64"].value == "Total Expenses"
+
+    def test_savings_log_rows_are_the_ones_the_dashboard_parser_reads(self):
+        ws = bt.build_workbook(_spec())[bt.SAVINGS_LOG]
+        ws["B5"], ws["B6"], ws["B7"] = 120, 45, -30
+        rows = [[c.value or "" for c in r] for r in ws.iter_rows()]
+        assert pf.parse_savings_log(rows) == {
+            "dividends": 120, "interest": 45, "stock_gain": -30,
+        }  # fmt: skip
+
+    def test_dashboard_tiles_are_merged_pairs_with_charts_and_conditional_formats(self):
+        ws = bt.build_workbook(_spec())[bt.DASHBOARD]
+        merged = {str(r) for r in ws.merged_cells.ranges}
+        assert {"A4:B4", "A5:B5", "G20:H20", "A1:H1"} <= merged
+        assert [type(c).__name__ for c in ws._charts] == [
+            "BarChart", "BarChart", "LineChart",
+        ]  # fmt: skip
+        assert len(ws.conditional_formatting) >= 7  # one per range
+        assert ws["A5"].number_format == bt.TILE_MONEY
+
+    def test_top_five_lists_are_the_original_sheets_google_formulas(self):
+        # Google Sheets only (LibreOffice can't evaluate ARRAY_CONSTRAIN), so
+        # the formula text is what's checked, over the template's own ranges
+        ws = bt.build_workbook(_spec())[bt.DASHBOARD]
+        formulas = [
+            c.value for c in ws["A"] if str(c.value).startswith(("=ARRAY_CONSTRAIN", "=IFERROR(ARRAY_CONSTRAIN"))
+        ]  # fmt: skip
+        assert formulas[0] == (
+            "=ARRAY_CONSTRAIN(ARRAYFORMULA(SORT(Budget!A21:D23, 3, FALSE)), 5, 4)"
+        )
+        assert "FILTER(" in formulas[1] and "'Monthly Expenses'!P5:Q7" in formulas[1]
+        assert len(formulas) == 2
+        expenses = bt.build_workbook(_spec())[bt.MONTHLY_EXPENSES]
+        assert expenses["S4"].value is None  # the Over Budget helper is gone
+
+    def test_every_tab_has_the_original_sheets_look(self):
+        wb = bt.build_workbook(_spec())
+        for ws in wb:
+            assert ws.sheet_view.showGridLines is False, ws.title
+            assert ws.sheet_properties.tabColor is not None, ws.title
+        for tab in (bt.BUDGET, bt.NET_WORTH, bt.DASHBOARD):
+            assert wb[tab]["A1"].font.name == "Arial" and wb[tab]["A1"].font.sz == 22
+            assert wb[tab].row_dimensions[1].height >= 48
 
     def test_settings_hold_names_year_and_pay_frequencies(self):
         ws = bt.build_workbook(_spec(partner_paychecks_per_year=26))[bt.SETTINGS]

@@ -164,3 +164,42 @@ class TestPwa:
     def test_notebooks_link_the_manifest_and_register_the_worker(self):
         head = (ds._SRC / "heartbeat_head.html").read_text()
         assert 'register("/sw.js"' in head
+
+
+class TestDemoMode:
+    def test_the_real_app_is_unchanged_without_the_flag(self, client, monkeypatch):
+        monkeypatch.delenv("DEMO_MODE", raising=False)
+        manifest = client.get("/manifest.webmanifest").json()
+        assert manifest["name"] == "FinDash"
+        assert manifest["theme_color"] == "#0a0c0f"
+        real = client.get("/pwa/icon-512.png").content
+        assert real == (ds._PWA / "icon-512.png").read_bytes()
+        assert b"<title>FinDash</title>" in client.get("/login").content
+
+    def test_demo_manifest_is_named_and_coloured_apart(self, client, monkeypatch):
+        monkeypatch.setenv("DEMO_MODE", "1")
+        manifest = client.get("/manifest.webmanifest").json()
+        assert manifest["name"] == manifest["short_name"] == "FinDash Demo"
+        assert manifest["theme_color"] == ds.DEMO_THEME_COLOR
+        assert manifest["start_url"] == "/" and manifest["display"] == "standalone"
+        for path in ("/manifest.json", "/net-worth/manifest.json"):
+            assert client.get(path).json()["short_name"] == "FinDash Demo"
+
+    def test_demo_serves_its_own_icons_at_the_same_paths(self, client, monkeypatch):
+        monkeypatch.setenv("DEMO_MODE", "1")
+        for icon in client.get("/manifest.webmanifest").json()["icons"]:
+            served = client.get(icon["src"]).content
+            name = icon["src"].rsplit("/", 1)[1]
+            assert served == (ds._PWA / f"demo-{name}").read_bytes()
+            assert served != (ds._PWA / name).read_bytes()
+        touch = client.get("/pwa/apple-touch-icon.png").content
+        assert touch == (ds._PWA / "demo-apple-touch-icon.png").read_bytes()
+
+    def test_login_page_says_demo(self, client, monkeypatch):
+        monkeypatch.setenv("DEMO_MODE", "yes")
+        assert b"<title>FinDash Demo</title>" in client.get("/login").content
+
+    def test_every_demo_icon_exists(self):
+        for name, content_type in ds.PUBLIC_FILES.values():
+            if content_type == b"image/png":
+                assert (ds._PWA / f"demo-{name}").is_file()
