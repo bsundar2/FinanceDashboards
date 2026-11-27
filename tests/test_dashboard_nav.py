@@ -1,3 +1,5 @@
+import pytest
+
 from src import dashboard_nav as nav
 
 
@@ -48,3 +50,19 @@ class TestNavLinks:
         assert page.count('class="t-nav-ext"') == 2
         assert ">Yearly Overview</a>" in page
         assert ">Net Worth</a>" in page
+
+
+class TestDemoTag:
+    def test_no_tag_on_the_real_app(self, monkeypatch):
+        monkeypatch.delenv("DEMO_MODE", raising=False)
+        assert "t-nav-demo" not in nav.nav_html(nav.OVERVIEW).split("</style>")[1]
+
+    @pytest.mark.parametrize("flag", ["1", "true", "YES", " on "])
+    def test_demo_data_tag_in_the_menu_bar(self, monkeypatch, flag):
+        monkeypatch.setenv("DEMO_MODE", flag)
+        bar = nav.nav_html(nav.OVERVIEW).split("</style>")[1]
+        assert '<span class="t-nav-demo"' in bar and "Demo data" in bar
+
+    def test_other_values_leave_it_off(self, monkeypatch):
+        monkeypatch.setenv("DEMO_MODE", "0")
+        assert not nav.demo_mode()

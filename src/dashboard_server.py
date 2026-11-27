@@ -13,6 +13,7 @@ instead."""
 import asyncio
 import hashlib
 import hmac
+import json
 import html
 import os
 from http.cookies import SimpleCookie
@@ -21,6 +22,8 @@ from urllib.parse import parse_qs, quote
 
 import marimo
 from itsdangerous import BadSignature, TimestampSigner
+
+from src.dashboard_nav import demo_mode
 
 _SRC = Path(__file__).parent
 PASSWORD_ENV_VAR = "FINANCE_TOKEN"
@@ -46,12 +49,35 @@ PUBLIC_FILES = {
     "/pwa/icon-maskable-512.png": ("icon-maskable-512.png", b"image/png"),
     "/pwa/apple-touch-icon.png": ("apple-touch-icon.png", b"image/png"),
 }
+
+
+def _public_file(name: str) -> bytes:
+    """A PWA file's bytes: in demo mode, the demo icons (demo-<name>) and a
+    manifest with the demo's name and an amber title bar."""
+    if not demo_mode():
+        return (_PWA / name).read_bytes()
+    if name.endswith(".png"):
+        return (_PWA / f"demo-{name}").read_bytes()
+    if name == "manifest.webmanifest":
+        manifest = json.loads((_PWA / name).read_text())
+        manifest.update(
+            name="FinDash Demo",
+            short_name="FinDash Demo",
+            description="Demo of the yearly overview and net worth dashboards, with made-up data",
+            theme_color=DEMO_THEME_COLOR,
+        )
+        return json.dumps(manifest, indent=2).encode()
+    return (_PWA / name).read_bytes()
+
+
+DEMO_THEME_COLOR = "#2896f0"
+
 # Slows down guessing; a person barely notices it on a typo
 FAILED_LOGIN_DELAY_SECONDS = 1.0
 
 _LOGIN_PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FinDash</title>
+<title>{title}</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0a0c0f">
 <style>
@@ -104,7 +130,7 @@ class PasswordGate:
             if scope["path"] == "/sw.js":
                 # So a changed worker is picked up right away
                 headers.append((b"cache-control", b"no-cache"))
-            await self._respond(send, 200, (_PWA / name).read_bytes(), headers)
+            await self._respond(send, 200, _public_file(name), headers)
             return
         if self._authorized(scope):
             if scope["type"] == "http" and scope["path"] == HEARTBEAT_PATH:
@@ -167,6 +193,7 @@ class PasswordGate:
 
     async def _page(self, send, action: str, error: str = ""):
         page = _LOGIN_PAGE.format(
+            title="FinDash Demo" if demo_mode() else "FinDash",
             action=html.escape(action),
             error=f'<div class="error">{error}</div>' if error else "",
         )
