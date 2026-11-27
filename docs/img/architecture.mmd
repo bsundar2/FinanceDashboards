@@ -1,0 +1,18 @@
+flowchart LR
+  subgraph S[Sources]
+    SW[Splitwise<br/>expenses, shares, categories]
+    SF[SimpleFIN Bridge<br/>balances and holdings]
+  end
+  subgraph P[Scheduled pipelines]
+    P1[SplitwiseToSheets<br/>GitHub Actions, 3x a day]
+    P2[FinanceToSheets<br/>GitHub Actions, every 5 hours]
+  end
+  G[(Google Sheets<br/>Expense Log, Budget, Net Worth,<br/>holdings, dividends)]
+  subgraph D[Dashboards on Render]
+    D1[Yearly Overview<br/>spending, savings, runway]
+    D2[Net Worth<br/>allocation and holdings]
+  end
+  SW --> P1 --> G
+  SF --> P2 --> G
+  G --> D1
+  G --> D2
