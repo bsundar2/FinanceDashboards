@@ -496,20 +496,21 @@ def build_accounts_data(rng: random.Random, today: datetime.date, year: int) -> 
 
 
 def build_dividends(
-    holdings: list, today: datetime.date, rng: random.Random, history_months: int = 14
+    holdings: list,
+    today: datetime.date,
+    rng: random.Random,
+    history_months: int = 14,
+    institutions: tuple = ("Meridian Brokerage", "Summit Retirement"),
 ) -> tuple[list, float]:
     """The dividend ledger's rows, from `history_months` back, for every
-    dividend-paying holding in the brokerage and the IRAs, plus the yearly
-    dividend those positions project."""
+    dividend-paying holding in the given institutions' accounts (401(k)s
+    excluded), plus the yearly dividend those positions project."""
     rows, projected, number = [], 0.0, 1
     start = (pd_month_back(today, history_months)).replace(day=1)
     for h in holdings:
         institution, account, symbol, name, shares, value = h[:6]
         _, price, dividend_yield, pay_months = SECURITIES[symbol]
-        if not pay_months or institution not in (
-            "Meridian Brokerage",
-            "Summit Retirement",
-        ):
+        if not pay_months or institution not in institutions:
             continue
         if "401(k)" in account:
             continue
@@ -569,6 +570,54 @@ def _write_table(ws, header: list, rows: list, first_row: int = 1, money_cols=()
     ws.freeze_panes = ws.cell(row=first_row + 1, column=1)
 
 
+def add_holdings_tabs(
+    wb,
+    holdings: list,
+    today: datetime.date,
+    year: int,
+    rng: random.Random,
+    institutions: tuple = ("Meridian Brokerage", "Summit Retirement"),
+):
+    """The tabs FinanceToSheets writes beside the budget: holdings_dump,
+    dividends_ledger (for the given institutions' dividend payers) and the
+    Stocks tab's projected yearly dividend (K3)."""
+    _write_table(wb.create_sheet(HOLDINGS_TAB), HOLDINGS_COLUMNS, holdings,
+                 money_cols=(6, 7, 8))  # fmt: skip
+
+    dividends, projected = build_dividends(
+        holdings, today, rng, institutions=institutions
+    )
+    ledger = wb.create_sheet(DIVIDENDS_TAB)
+    ledger["A1"] = "Dividend ledger (demo data)"
+    ledger["A1"].font = bt.TITLE_FONT
+    last = DIVIDENDS_HEADER_ROW + len(dividends) + 100
+    for col, institution in enumerate(institutions, start=2):
+        letter = bt.column_letter(col)
+        ledger[f"{letter}2"] = institution
+        ledger[f"{letter}3"] = (
+            f"=SUMIFS($G$7:$G${last},$C$7:$C${last},{letter}$2,"
+            f'$B$7:$B${last},">="&DATE({year},1,1))'
+        )
+        ledger[f"{letter}4"] = f"=SUMIFS($G$7:$G${last},$C$7:$C${last},{letter}$2)"
+    total = bt.column_letter(len(institutions) + 2)
+    first, last_col = "B", bt.column_letter(len(institutions) + 1)
+    ledger[f"{total}2"] = "Total"
+    ledger[f"{total}3"] = f"=SUM({first}3:{last_col}3)"
+    ledger[f"{total}4"] = f"=SUM({first}4:{last_col}4)"
+    ledger["A3"], ledger["A4"] = "This year", "All time"
+    for col in range(2, len(institutions) + 3):
+        for row in (3, 4):
+            ledger.cell(row=row, column=col).number_format = bt.MONEY
+    _write_table(ledger, DIVIDEND_COLUMNS, dividends, first_row=DIVIDENDS_HEADER_ROW,
+                 money_cols=(7,))  # fmt: skip
+
+    stocks = wb.create_sheet(STOCKS_TAB)
+    stocks["K2"] = "Projected yearly dividend"
+    stocks["K2"].font = bt.TOTAL_FONT
+    stocks["K3"] = projected
+    stocks["K3"].number_format = bt.MONEY
+
+
 def build_demo_workbook(
     today: datetime.date | None = None, seed: int = 7, year: int | None = None
 ):
@@ -614,36 +663,7 @@ def build_demo_workbook(
     bank_rows = [row for _, row in data["bank"]]
     _write_table(wb.create_sheet(BANK_ACCOUNTS_TAB), BANK_COLUMNS, bank_rows,
                  money_cols=(3,))  # fmt: skip
-    _write_table(wb.create_sheet(HOLDINGS_TAB), HOLDINGS_COLUMNS, data["holdings"],
-                 money_cols=(6, 7, 8))  # fmt: skip
-
-    dividends, projected = build_dividends(data["holdings"], today, rng)
-    ledger = wb.create_sheet(DIVIDENDS_TAB)
-    ledger["A1"] = "Dividend ledger (demo data)"
-    ledger["A1"].font = bt.TITLE_FONT
-    institutions = ["Meridian Brokerage", "Summit Retirement"]
-    last = DIVIDENDS_HEADER_ROW + len(dividends) + 100
-    for col, institution in enumerate(institutions, start=2):
-        letter = bt.column_letter(col)
-        ledger[f"{letter}2"] = institution
-        ledger[f"{letter}3"] = (
-            f"=SUMIFS($G$7:$G${last},$C$7:$C${last},{letter}$2,"
-            f'$B$7:$B${last},">="&DATE({year},1,1))'
-        )
-        ledger[f"{letter}4"] = f"=SUMIFS($G$7:$G${last},$C$7:$C${last},{letter}$2)"
-    ledger["D2"] = "Total"
-    ledger["D3"], ledger["D4"] = "=B3+C3", "=B4+C4"
-    ledger["A3"], ledger["A4"] = "This year", "All time"
-    for cell in ("B3", "C3", "D3", "B4", "C4", "D4"):
-        ledger[cell].number_format = bt.MONEY
-    _write_table(ledger, DIVIDEND_COLUMNS, dividends, first_row=DIVIDENDS_HEADER_ROW,
-                 money_cols=(7,))  # fmt: skip
-
-    stocks = wb.create_sheet(STOCKS_TAB)
-    stocks["K2"] = "Projected yearly dividend"
-    stocks["K2"].font = bt.TOTAL_FONT
-    stocks["K3"] = projected
-    stocks["K3"].number_format = bt.MONEY
+    add_holdings_tabs(wb, data["holdings"], today, year, rng)
     return wb
 
 
