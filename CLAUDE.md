@@ -29,6 +29,9 @@ FINANCE_TOKEN=<password> uvicorn --factory src.dashboard_server:create_app --por
 # Budget template, or an old sheet moved onto it
 python -m src.budget_template --out "Budget Template.xlsx" --year 2027
 python -m src.budget_migration "Budget - 2026.xlsx" --out "Budget - 2026 (v2).xlsx" --name Alex --partner Sam --year 2026
+
+# Demo spreadsheet: a fictional household, to show the dashboards without real data
+python -m src.demo_data --out "Demo Budget - 2026.xlsx"
 ```
 
 Start the server from the repo root: marimo finds `.marimo.toml` (dark theme) by searching up from the working directory.
@@ -90,6 +93,10 @@ The Net Worth design is what makes the household view work. Each row is one acco
 - Net Worth: the old rows held your share; the new ones hold the full balance. A live formula reading a fixed `'Savings Log'` cell becomes a Balance Key (the account's `(1234)` suffix, or the hand-entered label). A share factor (`=-0.6*'Savings Log'!...`, `=1555000*0.6`, `=0.4 * LET(...)`) becomes your % (`_share_factor()`), and frozen past values are divided by it; on an "Extra" row the partner's % is minus yours. Other formulas are moved with `translate()` (month columns +3, rows remapped, `COLUMN()-n` offsets adjusted, quoted text and other tabs untouched) at 100% yours. Rows the old Real Estate subtotal subtracted are stored negated.
 
 `tests/test_budget_template.py` recalculates a built workbook in LibreOffice (skipped without `libreoffice-calc`) to check the formulas, and runs the dashboard parser over the result.
+
+### Demo data (`src/demo_data.py`)
+
+`build_demo_workbook()` fills the budget template with a made-up household (Alex and Sam, invented banks and merchants) so the dashboards can be shown without real numbers. The Budget, Monthly Expenses, Net Worth and Dashboard tabs stay the template's real formulas; the generator supplies the inputs: a year of Splitwise-shaped expenses up to today in both Expense Logs (a shared bill in both under one Splitwise ID, plus a few big one-offs for the picker), pay and taxes on the Income tab, and net worth rows whose past months are frozen values while the current month is looked up from the Accounts tab (hand-entered balances, plus static copies of what IMPORTRANGE of each person's `bank_accounts_dump` would spill into G5 and L5). It also writes the tabs FinanceToSheets would: `bank_accounts_dump`, `holdings_dump` (each brokerage and retirement account's positions add up to its balance; a 401(k) lists each fund once per money source), `dividends_ledger` (header in row 6, under a summary) and `Stocks!K3` (the projected yearly dividend). One spreadsheet holds everything, so set both `BUDGET_SPREADSHEET_NAME` and `HOLDINGS_SPREADSHEET_NAME` to it; its name needs the year in it. A seed makes a run repeatable, and `--today` fixes the date. `tests/test_demo_data.py` runs the dashboard's own parsers over the recalculated workbook (skipped without LibreOffice), so a change to a parsed label breaks the demo's test, not the demo.
 
 ## Key conventions
 
