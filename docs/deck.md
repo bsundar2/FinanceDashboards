@@ -20,7 +20,7 @@ style: |
   .flow .arrow { color: #E8890C; font-size: 40px; text-align: center; }
   .flow .card { margin-bottom: 16px; }
   .small { color: #8793AB; font-size: 22px; }
-  .rows .row { background: #0A0C0F; border: 2px solid #262D3D; border-radius: 12px; padding: 14px 24px; margin-bottom: 14px; font-size: 26px; display: grid; grid-template-columns: 160px 1fr; align-items: center; }
+  .rows .row { background: #0A0C0F; border: 2px solid #262D3D; border-radius: 12px; padding: 14px 24px; margin-bottom: 14px; font-size: 26px; display: grid; grid-template-columns: 210px 1fr; align-items: center; }
   .rows .row b { font-family: 'IBM Plex Mono', monospace; color: #E8890C; font-size: 28px; }
   img { border: 2px solid #262D3D; border-radius: 8px; }
 ---
@@ -98,13 +98,13 @@ Pick an account or see them all · each account's holdings add up to its balance
 <!-- _class: alt -->
 <p class="eyebrow">The budget template</p>
 
-## One sheet for the whole household
+## One sheet for the household
 
-<div class="cols2">
-<div class="card"><b>Shared, not merged</b>Each partner has their own pay and expense log. Budget, Net Worth and Dashboard add both up.</div>
-<div class="card"><b>Plain and auditable</b>Settings, Income, Accounts and Net Worth tabs. Every total is a formula you can click into.</div>
-<div class="card"><b>Bring an old sheet</b>A script moves a single-person budget onto the template and keeps its history.</div>
-<div class="card"><b>Rebuilt from code</b>The workbook is generated, so a new year is one command.</div>
+<div class="rows">
+<div class="row"><b>Shared</b>Each partner has their own pay and expense log. Budget and Net Worth add both up.</div>
+<div class="row"><b>Auditable</b>Every total is a formula you can click into.</div>
+<div class="row"><b>Migration</b>A script moves an old single-person budget onto the template.</div>
+<div class="row"><b>Generated</b>The workbook is built from code, so a new year is one command.</div>
 </div>
 
 ---
@@ -119,26 +119,3 @@ Pick an account or see them all · each account's holdings add up to its balance
 <div class="row"><b>Sheets</b>A service account sees only the sheets shared with it.</div>
 <div class="row"><b>Logs</b>Public workflow logs show counts and tab names, never accounts or amounts.</div>
 </div>
-
----
-<!-- _class: stmt -->
-<!-- _paginate: false -->
-<p class="eyebrow">What to copy</p>
-
-## Let the sheet fill itself, then read it with simple dashboards.
-
-Start with one feed and one tab. Keep the data out of git.
-
----
-<!-- _class: alt -->
-<p class="eyebrow">Q&amp;A</p>
-
-## Questions
-
-<div class="cols">
-<div class="card"><b>FinanceDashboards</b>Dashboards and the budget template</div>
-<div class="card"><b>FinanceToSheets</b>Bank and brokerage feed</div>
-<div class="card"><b>SplitwiseToSheets</b>Splitwise feed</div>
-</div>
-
-<p class="small">All three: github.com/bsundar2</p>
