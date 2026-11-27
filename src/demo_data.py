@@ -276,12 +276,17 @@ SECURITIES = {
     "BTC": ("Bitcoin", 94000.0, 0, ()),
     "ETH": ("Ethereum", 3300.0, 0, ()),
     "SOL": ("Solana", 190.0, 0, ()),
-    "SUM500": ("Summit 500 Index Fund", 188.0, 0, ()),
-    "SUMINT": ("Summit International Index Fund", 41.0, 0, ()),
-    "SUMBND": ("Summit Bond Index Fund", 10.8, 0, ()),
-    "SUMTGT": ("Summit Target 2050 Fund", 24.5, 0, ()),
-    "HRB500": ("Harbor Large Cap Index", 96.0, 0, ()),
-    "HRBTGT": ("Harbor Target 2055 Fund", 18.2, 0, ()),
+    "VFIAX": ("Vanguard 500 Index Fund Admiral Shares", 540.0, 0, ()),
+    "VTIAX": (
+        "Vanguard Total International Stock Index Fund Admiral Shares",
+        40.0,
+        0,
+        (),
+    ),
+    "VBTLX": ("Vanguard Total Bond Market Index Fund Admiral Shares", 9.7, 0, ()),
+    "VFIFX": ("Vanguard Target Retirement 2050 Fund", 62.0, 0, ()),
+    "FXAIX": ("Fidelity 500 Index Fund", 215.0, 0, ()),
+    "VTTSX": ("Vanguard Target Retirement 2060 Fund", 45.0, 0, ()),
 }
 
 # Positions as shares of an account's balance (the rest is cash). 401(k)s list
@@ -291,9 +296,9 @@ STOCK_WEIGHTS = {"MSFT": .16, "AAPL": .13, "NVDA": .11, "COST": .09, "JNJ": .09,
 ETF_WEIGHTS = {"VTI": 0.36, "VXUS": 0.18, "SCHD": 0.22, "QQQ": 0.14, "BND": 0.09}
 CRYPTO_WEIGHTS = {"BTC": 0.62, "ETH": 0.28, "SOL": 0.09}
 ROTH_WEIGHTS = {"SCHD": 0.34, "VTI": 0.30, "VYM": 0.20, "VXUS": 0.15}
-TRAD_WEIGHTS = {"SUMBND": 0.45, "SUM500": 0.40, "SUMINT": 0.14}
-K401_WEIGHTS = {"SUM500": 0.46, "SUMINT": 0.16, "SUMBND": 0.10, "SUMTGT": 0.28}
-PARTNER_K401_WEIGHTS = {"HRB500": 0.62, "HRBTGT": 0.38}
+TRAD_WEIGHTS = {"VBTLX": 0.45, "VFIAX": 0.40, "VTIAX": 0.14}
+K401_WEIGHTS = {"VFIAX": 0.46, "VTIAX": 0.16, "VBTLX": 0.10, "VFIFX": 0.28}
+PARTNER_K401_WEIGHTS = {"FXAIX": 0.62, "VTTSX": 0.38}
 
 
 @dataclass
