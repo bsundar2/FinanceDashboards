@@ -622,7 +622,7 @@ def _build_monthly_expenses(ws, spec: BudgetSpec, layout: _Layout):
     _header(
         ws, 4,
         ["Category", "Sub-Category", "Monthly\nBudget", *months, "YTD\nActual",
-         "Annual\nBudget", "Variance\n(Budget−Actual)", "Over Budget"],
+         "Annual\nBudget", "Variance\n(Budget−Actual)"],
     )  # fmt: skip
     for offset in range(len(spec.categories)):
         row = layout.me_first + offset
@@ -639,22 +639,21 @@ def _build_monthly_expenses(ws, spec: BudgetSpec, layout: _Layout):
         ws[f"P{row}"] = f"=SUM(D{row}:O{row})"
         ws[f"Q{row}"] = f"={BUDGET}!D{source}"
         ws[f"R{row}"] = f"=Q{row}-P{row}"
-        ws[f"S{row}"] = f"=MAX(0,P{row}-Q{row})"
     total = layout.me_total
     ws[f"A{total}"] = "TOTAL EXPENSES"
-    for col in range(3, 20):
+    for col in range(3, 19):
         letter = column_letter(col)
         ws[f"{letter}{total}"] = (
             f"=Q{total}-P{total}"
             if letter == "R"
             else f"=SUM({letter}{layout.me_first}:{letter}{layout.me_last})"
         )
-    _band(ws, total, 1, 19)
+    _band(ws, total, 1, 18)
     for row in ws.iter_rows(min_row=layout.me_first, max_row=total, min_col=3):
         for cell in row:
             cell.number_format = MONEY
     ws.freeze_panes = "C5"
-    _widths(ws, {"A": 16, "B": 24, **{column_letter(c): 12 for c in range(3, 20)}})
+    _widths(ws, {"A": 16, "B": 24, **{column_letter(c): 12 for c in range(3, 19)}})
 
 
 def _build_expense_log(ws, rows: list):
@@ -1047,43 +1046,41 @@ def _build_dashboard(ws, spec: BudgetSpec, layout: _Layout):
         for cell in cells:
             cell.number_format = MONEY
 
-    # Top 5 lists with LARGE/INDEX/MATCH, which Google Sheets, Excel and
-    # LibreOffice all evaluate the same way (the original sheet's
-    # ARRAY_CONSTRAIN(SORT(...)) is Google-only)
+    # Top 5 lists as one spilling formula each, the original sheet's own
+    # ARRAY_CONSTRAIN(SORT(...)): Google Sheets only, which is where the
+    # template is imported. The first cell fills its row and the four below.
     budget_first, budget_last = layout.first_category, layout.last_category
-    spend = f"{BUDGET}!$C${budget_first}:$C${budget_last}"
     r += 3
     _section(ws, r, "TOP 5 BY SPEND  ·  YTD", 8)
     _header(
         ws, r + 1, ["CATEGORY", "LINE ITEM", "YTD SPEND", "BUDGET", "% TOTAL SPEND"]
     )
     top = (r + 2, r + 6)
-    for k in range(1, 6):
-        row = r + 1 + k
-        match = f"MATCH(C{row},{spend},0)"
-        ws[f"C{row}"] = f"=LARGE({spend},{k})"
-        ws[f"A{row}"] = f"=INDEX({BUDGET}!$A${budget_first}:$A${budget_last},{match})"
-        ws[f"B{row}"] = f"=INDEX({BUDGET}!$B${budget_first}:$B${budget_last},{match})"
-        ws[f"D{row}"] = f"=INDEX({BUDGET}!$D${budget_first}:$D${budget_last},{match})"
+    ws[f"A{r + 2}"] = (
+        f"=ARRAY_CONSTRAIN(ARRAYFORMULA(SORT({BUDGET}!A{budget_first}:D{budget_last}"
+        ", 3, FALSE)), 5, 4)"
+    )
+    for row in range(r + 2, r + 7):
         ws[f"E{row}"] = f"=IFERROR(C{row}/{BUDGET}!$C${total},0)"
         ws[f"C{row}"].number_format = ws[f"D{row}"].number_format = MONEY
         ws[f"E{row}"].number_format = PERCENT
 
-    over = f"{me}!$S${layout.me_first}:$S${layout.me_last}"
+    # Over budget: category, item, YTD, budget and the overage, biggest first
+    # (blank when nothing is over)
+    rows = f"{layout.me_first}", f"{layout.me_last}"
+    col = lambda c: f"{me}!{c}{rows[0]}:{c}{rows[1]}"
+    ws_over = (
+        f"=IFERROR(ARRAY_CONSTRAIN(ARRAYFORMULA(SORT(FILTER({{{me}!A{rows[0]}:B{rows[1]},"
+        f"{me}!P{rows[0]}:Q{rows[1]},{col('P')}-{col('Q')}}},{col('P')}>{col('Q')}),"
+        ' 5, FALSE)), 5, 5),"")'
+    )
     r += 9
     _section(ws, r, "TOP 5 OVERSPEND  ·  YTD", 8)
     _header(ws, r + 1, ["CATEGORY", "LINE ITEM", "YTD SPEND", "BUDGET", "OVER BY"])
-    for k in range(1, 6):
-        row = r + 1 + k
-        match = f"MATCH(E{row},{over},0)"
-        ws[f"E{row}"] = f'=IF(LARGE({over},{k})>0,LARGE({over},{k}),"")'
-        for col, source in (("A", "A"), ("B", "B"), ("C", "P"), ("D", "Q")):
-            ws[f"{col}{row}"] = (
-                f'=IF(E{row}="","",INDEX({me}!${source}${layout.me_first}:'
-                f"${source}${layout.me_last},{match}))"
-            )
-        for col in "CDE":
-            ws[f"{col}{row}"].number_format = MONEY
+    ws[f"A{r + 2}"] = ws_over
+    for row in range(r + 2, r + 7):
+        for col_letter in "CDE":
+            ws[f"{col_letter}{row}"].number_format = MONEY
 
     r += 9
     _section(ws, r, "SPENDING BY PERSON  ·  YTD", 8)

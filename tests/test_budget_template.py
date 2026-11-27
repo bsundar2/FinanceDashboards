@@ -107,6 +107,21 @@ class TestBuildWorkbook:
         assert len(ws.conditional_formatting) >= 7  # one per range
         assert ws["A5"].number_format == bt.TILE_MONEY
 
+    def test_top_five_lists_are_the_original_sheets_google_formulas(self):
+        # Google Sheets only (LibreOffice can't evaluate ARRAY_CONSTRAIN), so
+        # the formula text is what's checked, over the template's own ranges
+        ws = bt.build_workbook(_spec())[bt.DASHBOARD]
+        formulas = [
+            c.value for c in ws["A"] if str(c.value).startswith(("=ARRAY_CONSTRAIN", "=IFERROR(ARRAY_CONSTRAIN"))
+        ]  # fmt: skip
+        assert formulas[0] == (
+            "=ARRAY_CONSTRAIN(ARRAYFORMULA(SORT(Budget!A21:D23, 3, FALSE)), 5, 4)"
+        )
+        assert "FILTER(" in formulas[1] and "'Monthly Expenses'!P5:Q7" in formulas[1]
+        assert len(formulas) == 2
+        expenses = bt.build_workbook(_spec())[bt.MONTHLY_EXPENSES]
+        assert expenses["S4"].value is None  # the Over Budget helper is gone
+
     def test_every_tab_has_the_original_sheets_look(self):
         wb = bt.build_workbook(_spec())
         for ws in wb:
