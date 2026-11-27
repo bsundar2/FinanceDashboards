@@ -5,6 +5,7 @@ paginate: true
 backgroundColor: "#0A0C0F"
 color: "#E8EDF5"
 style: |
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap');
   section { font-family: 'IBM Plex Sans', Arial, sans-serif; font-size: 30px; padding: 64px 80px; }
   h1, h2, h3 { font-family: 'IBM Plex Mono', monospace; color: #E8EDF5; }
   h1 { font-size: 72px; } h2 { font-size: 46px; margin-bottom: 24px; }
@@ -24,8 +25,6 @@ style: |
   .rows .row b { font-family: 'IBM Plex Mono', monospace; color: #E8890C; font-size: 28px; }
   img { border: 2px solid #262D3D; border-radius: 8px; }
 ---
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
-
 <!-- _paginate: false -->
 <p class="eyebrow">FinDash · A live demo</p>
 
