@@ -155,22 +155,56 @@ class TestScrubCached:
 
 
 class TestNames:
-    def test_one_real_institution_is_one_fake_one(self):
-        names = da._Names({"acme": {"cash accounts", "investments"}})
-        first = names.institution("Acme ", "cash accounts")
-        assert first == names.institution(" ACME", "investments")
-        assert first in da.FINANCIAL
+    def test_one_real_institution_is_one_fake_one_per_role(self):
+        names = da._Names()
+        first = names.institution("Acme ", "bank")
+        assert first == names.institution(" ACME", "bank")
+        assert first in da.POOLS["bank"]
+        assert names.institution("Acme", "broker") in da.POOLS["broker"]
 
-    def test_cards_banks_and_brokers_draw_from_their_own_pools(self):
-        names = da._Names({"a": {"cash accounts"}, "b": {"investments"},
-                           "c": {"retirement"}})  # fmt: skip
-        assert names.institution("a", "cash accounts") in da.BANKS
-        assert names.institution("b", "investments") in da.BROKERS
-        assert names.institution("c", "retirement") in da.RETIREMENT
-        assert names.institution("a", "liabilities", card=True) in da.CARDS
+    def test_each_kind_of_account_draws_from_its_own_pool(self):
+        names = da._Names()
+        for role in (
+            "bank",
+            "broker",
+            "retirement",
+            "crypto",
+            "overseas",
+            "card",
+            "loan",
+        ):
+            assert names.institution("x", role) in da.POOLS[role]
+
+    def test_a_name_the_real_sheet_also_uses_is_skipped(self):
+        taken = {da._norm(da.POOLS["bank"][0])}
+        names = da._Names(avoid=taken)
+        assert names.institution("anything", "bank") == da.POOLS["bank"][1]
+
+    def test_the_pool_wraps_with_a_number_when_it_runs_out(self):
+        names = da._Names()
+        pool = da.POOLS["loan"]
+        found = [names.institution(f"lender {i}", "loan") for i in range(len(pool) + 1)]
+        assert found[: len(pool)] == pool and found[-1] == f"{pool[0]} 2"
 
     def test_blank_stays_blank(self):
-        assert da._Names({}).institution(None, "cash accounts") is None
+        assert da._Names().institution(None, "bank") is None
+
+    @pytest.mark.parametrize(
+        "section, b, c, role",
+        [
+            ("cash accounts", "Checking", "Individual", "bank"),
+            ("cash accounts", "Brokerage", "Uninvested", "broker"),
+            ("cash accounts", "Savings", "Foreign", "overseas"),
+            ("investments", "Brokerage", "Crypto", "crypto"),
+            ("investments", "Brokerage", "ETF", "broker"),
+            ("investments", "Bonds", "I-Bonds", "bonds"),
+            ("retirement", "Retirement", "401k", "retirement"),
+            ("liabilities", "Liability", "Credit Card", "card"),
+            ("liabilities", "Liability", "Car Loan", "loan"),
+        ],
+    )
+    def test_role_comes_from_the_generic_labels(self, section, b, c, role):
+        assert da._role(section, b, c) == role
 
 
 class TestAnonymize:
@@ -214,7 +248,7 @@ class TestAnonymize:
         assert nw["O6"].value.startswith("='Savings Log'!$F$")
         assert nw["O6"].value == nw["P6"].value
         row = int(nw["O6"].value.rsplit("$", 1)[1])
-        assert log[f"D{row}"].value in da.BANKS + da.FINANCIAL
+        assert log[f"D{row}"].value in da.POOLS["bank"]
         mortgage = nw["O19"].value
         assert mortgage.startswith("=-'Savings Log'!")  # the mortgage is held positive
 

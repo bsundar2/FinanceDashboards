@@ -51,20 +51,32 @@ RETIREMENT_YEARLY, MATCH_YEARLY = 16_500.0, 4_950.0
 BUDGET_SHARE = 0.6
 OWN_BUDGETS = {"Mortgage": 18_900.0}
 
-# Made-up names handed out in the order the real ones are first met
-BANKS = ["Atlas Bank", "Harbor Credit Union", "Summit Savings", "Cedar Trust",
-         "Orchard Online Bank", "Overseas Trust Bank", "Lakeview Bank"]  # fmt: skip
-FINANCIAL = [
-    "Meridian Financial",
-    "Northwind Financial",
-    "Atlas Financial",
-    "Kestrel Financial",
-]  # banks that also have a brokerage
-BROKERS = ["Meridian Brokerage", "Northwind Invest", "Coinvault", "Federal Savings Bonds",
-           "Tidewater Securities"]  # fmt: skip
-RETIREMENT = ["Summit Retirement", "Pinecrest Retirement", "Ridgeline Retirement"]
-CARDS = ["Voyager Card", "Skyline Card", "Orchard Cash Card", "Everyday Rewards",
-         "Harbor Visa", "Kestrel Card", "Atlas Rewards Card"]  # fmt: skip
+# Well-known institutions handed out in the order the real ones are first
+# met, to show money spread across a few kinds of provider. Any that your
+# real sheet also uses is skipped, so the demo doesn't mirror your accounts.
+POOLS = {
+    "bank": ["Ally Bank", "Capital One", "Marcus by Goldman Sachs", "Discover Bank",
+             "Navy Federal Credit Union", "SoFi", "Citizens Bank", "PNC Bank",
+             "U.S. Bank", "Chase", "Synchrony Bank", "Bank of America", "Wells Fargo"],
+    "broker": ["Charles Schwab", "Vanguard", "Fidelity", "Robinhood", "E*TRADE",
+               "Interactive Brokers", "Merrill Edge", "J.P. Morgan Self-Directed",
+               "Wealthfront", "Betterment"],
+    "retirement": ["Vanguard", "Fidelity", "Empower", "T. Rowe Price", "TIAA",
+                   "Principal", "Charles Schwab"],
+    "crypto": ["Coinbase", "Kraken", "Gemini", "Binance.US"],
+    "overseas": ["HSBC", "Standard Chartered", "Citibank International", "Barclays"],
+    "bonds": ["TreasuryDirect"],
+    "card": ["Chase Sapphire", "Amex Gold", "Citi Double Cash", "Capital One Venture",
+             "Discover it", "Apple Card", "Bilt", "Wells Fargo Active Cash",
+             "Bank of America Premium Rewards", "Chase Freedom Unlimited",
+             "Capital One Savor", "U.S. Bank Altitude", "PayPal Cashback"],
+    "loan": ["Capital One Auto", "Chase Auto", "Toyota Financial", "Navy Federal Auto",
+             "Ally Auto"],
+}  # fmt: skip
+BANKS, BROKERS, RETIREMENT, CARDS = (
+    POOLS[k] for k in ("bank", "broker", "retirement", "card")
+)
+FINANCIAL = POOLS["broker"]
 
 # What's put aside varies by month, except for what's automatic
 JITTER = [0.6, 0.8, 1.0, 1.0, 1.2, 1.4]
@@ -80,40 +92,54 @@ def _norm(text) -> str:
     return " ".join(str(text or "").split()).lower()
 
 
+def _role(section: str, b, c) -> str:
+    """What kind of provider holds an account, from its generic labels."""
+    b, c = _norm(b), _norm(c)
+    if "crypto" in c:
+        return "crypto"
+    if "bond" in c:
+        return "bonds"
+    if "foreign" in c or "foreign" in b:
+        return "overseas"
+    if "credit card" in c:
+        return "card"
+    if "loan" in c:
+        return "loan"
+    if section == "retirement":
+        return "retirement"
+    if section == "investments" or "uninvested" in c:
+        return "broker"
+    return "bank"
+
+
 class _Names:
-    """Maps each real institution to an invented one, the same way each
-    time it comes up (so two rows at one bank stay at one fake bank). The
-    pool depends on what the real one does across the sheet: a bank, a
-    broker, a retirement provider, or a bank that also has a brokerage."""
+    """Maps each real institution to an invented one of the right kind (a
+    bank, a broker, a card issuer...), the same way each time it comes up in
+    that role, so two IRAs at one provider stay at one fake provider. Names
+    the real sheet also uses are skipped."""
 
-    def __init__(self, roles: dict):
-        self.roles = roles  # normalized real name -> the sections it's in
+    def __init__(self, avoid: set = frozenset()):
+        self.avoid = avoid  # normalized names of the real institutions
         self.seen: dict[tuple, str] = {}
-        self.used: dict[int, int] = {}
+        self.used: dict[str, int] = {}
 
-    def _pool(self, real, card):
-        sections = self.roles.get(_norm(real), set())
-        if card:
-            return CARDS
-        if "retirement" in sections:
-            return RETIREMENT
-        banking = sections & {"cash accounts", "real estate", "liabilities"}
-        if banking and "investments" in sections:
-            return FINANCIAL
-        return BROKERS if "investments" in sections else BANKS
+    def _free(self, pool):
+        return [
+            name
+            for name in pool
+            if not any(a in _norm(name) or _norm(name) in a for a in self.avoid)
+        ] or pool
 
-    def institution(self, real, section: str, card: bool = False) -> str | None:
+    def institution(self, real, role: str) -> str | None:
         if not _norm(real):
             return None
-        key = (_norm(real), card)
+        key = (_norm(real), role)
         if key not in self.seen:
-            pool = self._pool(real, card)
-            count = self.used.get(id(pool), 0)
-            self.used[id(pool)] = count + 1
-            round_ = count // len(pool)
-            self.seen[key] = pool[count % len(pool)] + (
-                f" {round_ + 1}" if round_ else ""
-            )
+            pool = self._free(POOLS[role])
+            count = self.used.get(role, 0)
+            self.used[role] = count + 1
+            lap = count // len(pool)
+            self.seen[key] = pool[count % len(pool)] + (f" {lap + 1}" if lap else "")
         return self.seen[key]
 
 
@@ -245,6 +271,26 @@ def _budget(ws):
 # ── Net Worth ───────────────────────────────────────────────────────────────
 
 
+def _institutions(wb) -> set[str]:
+    """The real sheet's institutions, normalized and without the account
+    digits in brackets: Net Worth's Brokerage/Bank column and the Savings
+    Log's imported Institution column (its cached text)."""
+    found = set()
+    for title, column in (("Net Worth", 4), ("Savings Log", 4)):
+        if title not in wb.sheetnames:
+            continue
+        for row in wb[title].iter_rows(min_row=2, min_col=column, max_col=column):
+            value = row[0].value
+            if not isinstance(value, str):
+                continue
+            texts = _quoted_strings(value) if value.startswith("=") else [value]
+            for text in texts:
+                text = re.sub(r"\(.*?\)", "", text)
+                if len(_norm(text)) >= 4 and "computed_value" not in _norm(text):
+                    found.add(_norm(text))
+    return found
+
+
 def _template(section, b, c, rng, seen):
     """The simulated account behind a Net Worth row, from its generic Account
     and Type labels. `seen` counts rows already given a flow."""
@@ -366,11 +412,7 @@ def _net_worth(wb, rng, today, year, months, part):
         elif b is not None and contributing:
             rows.append((row, "contributions", b, c, None))
 
-    roles: dict[str, set] = {}
-    for _, sect, _, _, d in rows:
-        if sect != "contributions" and _norm(d):
-            roles.setdefault(_norm(d), set()).add(sect)
-    names = _Names(roles)
+    names = _Names(_institutions(wb))
     feeds, contribution_rows = [], []
     for row, sect, b, c, d in rows:
         if sect == "contributions":
@@ -381,8 +423,9 @@ def _net_worth(wb, rng, today, year, months, part):
             continue  # an empty row (Other Debt) stays empty
         account = _template(sect, b, c, rng, seen)
         series = _simulate(account, rng, months, part)
-        institution = names.institution(d, sect, card=account.kind == "card")
-        if institution and account.kind == "card":
+        role = _role(sect, b, c)
+        institution = names.institution(d, role)
+        if institution and role == "card":
             institution = f"{institution} ({rng.randint(1000, 9999)})"
         if account.contribution:
             steady = account.contribution in STEADY
