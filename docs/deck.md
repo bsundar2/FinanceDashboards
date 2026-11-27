@@ -20,6 +20,8 @@ style: |
   .flow .arrow { color: #E8890C; font-size: 40px; text-align: center; }
   .flow .card { margin-bottom: 16px; }
   .small { color: #8793AB; font-size: 22px; }
+  .rows .row { background: #0A0C0F; border: 2px solid #262D3D; border-radius: 12px; padding: 14px 24px; margin-bottom: 14px; font-size: 26px; display: grid; grid-template-columns: 160px 1fr; align-items: center; }
+  .rows .row b { font-family: 'IBM Plex Mono', monospace; color: #E8890C; font-size: 28px; }
   img { border: 2px solid #262D3D; border-radius: 8px; }
 ---
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
@@ -50,15 +52,7 @@ Splitwise and SimpleFIN feed a Google Sheet. Two dashboards read it live.
 
 ## Two feeds, one sheet, two dashboards
 
-<div class="flow">
-<div><div class="card"><b>Splitwise</b>Expenses, shares, categories</div><div class="card"><b>SimpleFIN Bridge</b>Balances and holdings</div></div>
-<div class="arrow">→</div>
-<div><div class="card"><b>SplitwiseToSheets</b>GitHub Actions, 3× a day</div><div class="card"><b>FinanceToSheets</b>GitHub Actions, every 5 hours</div></div>
-<div class="arrow">→</div>
-<div><div class="card" style="border-color:#E8890C"><b>Google Sheets</b>Expense Log, Budget, Net Worth, holdings, dividends</div></div>
-<div class="arrow">→</div>
-<div><div class="card"><b>Yearly Overview</b>Spending, savings, runway</div><div class="card"><b>Net Worth</b>Allocation and holdings</div></div>
-</div>
+![h:430](img/architecture.svg)
 
 ---
 <!-- _class: alt -->
@@ -114,41 +108,17 @@ Pick an account or see them all · each account's holdings add up to its balance
 </div>
 
 ---
-<p class="eyebrow">How it was built</p>
-
-## Built with Claude Code
-
-<div class="cols">
-<div class="card"><b>CLAUDE.md</b>Each repo explains its layout, commands and rules, so every session starts informed.</div>
-<div class="card"><b>Tests</b>Sheets calls are mocked, and formula tests recalculate the workbook in LibreOffice.</div>
-<div class="card"><b>Pull requests</b>Changes arrive as reviewed PRs, merged by me, then deployed.</div>
-</div>
-
----
 <!-- _class: alt -->
 <p class="eyebrow">Privacy by design</p>
 
-## Personal data stays out of the repo
+## Data stays out of the repo
 
-<div class="cols2">
-<div class="card"><b>Code</b>Account numbers, names and balances live in secrets and the sheet, never in code, tests or docs.</div>
-<div class="card"><b>Access</b>A login gate with a signed cookie that expires daily. The service won't start without a password.</div>
-<div class="card"><b>Sheets</b>A service account sees only the sheets shared with it.</div>
-<div class="card"><b>Logs</b>Public workflow logs show tab names and counts, never accounts or amounts.</div>
+<div class="rows">
+<div class="row"><b>Code</b>Names, account numbers and balances live in secrets and the sheet, never in code.</div>
+<div class="row"><b>Access</b>One password and a signed cookie that expires daily. No password, no start.</div>
+<div class="row"><b>Sheets</b>A service account sees only the sheets shared with it.</div>
+<div class="row"><b>Logs</b>Public workflow logs show counts and tab names, never accounts or amounts.</div>
 </div>
-
----
-<p class="eyebrow">About the demo data</p>
-
-## The demo data is made up
-
-<div class="cols">
-<div class="card"><b>1 · Export</b>Start from the real layout: same tabs, formulas and charts.</div>
-<div class="card"><b>2 · Replace</b>Spending, pay, balances and holdings are generated. Institutions are well-known examples.</div>
-<div class="card"><b>3 · Check</b>The tool compares the demo with the real file and flags any real figure or name left behind.</div>
-</div>
-
-<p class="small">The installed app is named FinDash Demo, with a blue icon and a DEMO DATA tag.</p>
 
 ---
 <!-- _class: stmt -->
