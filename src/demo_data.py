@@ -20,7 +20,17 @@ import argparse
 import calendar
 import datetime
 import random
+import re
+import shutil
+import subprocess
+import tempfile
+import zipfile
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from xml.sax.saxutils import escape
 from dataclasses import dataclass
+
+import openpyxl
 
 from src import budget_template as bt
 
@@ -672,6 +682,97 @@ def build_demo_workbook(
     return wb
 
 
+# ── Stored results ──────────────────────────────────────────────────────────
+
+_FORMULA_CELL = re.compile(
+    r'<c r="(?P<ref>[A-Z]+\d+)"(?P<attrs>[^>]*)>(?P<f><f[^>]*>.*?</f>|<f[^>]*/>)'
+    r"(?:<v></v>|<v\s*/>)</c>",
+    re.S,
+)
+_EPOCH = datetime.datetime(1899, 12, 30)
+
+
+def _cached(value) -> tuple[str, str | None] | None:
+    """The (type attribute, text) a formula cell stores for a computed value,
+    or None to leave it blank (errors: a formula only Google Sheets knows
+    shouldn't show LibreOffice's #NAME?)."""
+    if (
+        value is None
+        or value == ""
+        or (isinstance(value, str) and value.startswith("#"))
+    ):
+        return None
+    if isinstance(value, bool):
+        return ' t="b"', str(int(value))
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        when = (
+            datetime.datetime.combine(value, datetime.time())
+            if not isinstance(value, datetime.datetime)
+            else value
+        )
+        return "", repr((when - _EPOCH).total_seconds() / 86400)
+    if isinstance(value, (int, float)):
+        return "", repr(value)
+    return ' t="str"', escape(str(value))
+
+
+def add_cached_values(path: str) -> int:
+    """Stores each formula's computed result in the .xlsx, so Excel's
+    Protected View, file previewers and phone apps show numbers instead of
+    empty cells (openpyxl writes formulas with no results; Excel and Google
+    Sheets recalculate on open, those viewers don't). The results come from
+    a LibreOffice recalculation of the same file. A cell LibreOffice can't
+    compute stays blank until Google Sheets calculates it. Returns how many
+    cells were filled; 0, with the file untouched, without LibreOffice."""
+    soffice = shutil.which("soffice")
+    if not soffice:
+        return 0
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(
+            [soffice, "--headless", "--norestore",
+             f"-env:UserInstallation=file://{tmp}/profile",
+             "--convert-to", "xlsx", "--outdir", f"{tmp}/out", path],
+            check=True, capture_output=True, timeout=600,
+        )  # fmt: skip
+        calc = openpyxl.load_workbook(
+            Path(tmp) / "out" / Path(path).name, data_only=True
+        )
+    filled = 0
+    with zipfile.ZipFile(path) as source:
+        entries = {name: source.read(name) for name in source.namelist()}
+    main = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    relation = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    rels = {
+        r.get("Id"): r.get("Target")
+        for r in ET.fromstring(entries["xl/_rels/workbook.xml.rels"])
+    }
+    sheets = [
+        (s_.get("name"), s_.get(relation))
+        for s_ in ET.fromstring(entries["xl/workbook.xml"]).iter(f"{main}sheet")
+    ]
+    for name, rid in sheets:
+        target = rels[rid].lstrip("/")
+        part = target if target.startswith("xl/") else f"xl/{target}"
+        if name not in calc.sheetnames or part not in entries:
+            continue
+        sheet = calc[name]
+
+        def fill(match):
+            nonlocal filled
+            stored = _cached(sheet[match["ref"]].value)
+            if not stored:
+                return match.group(0)
+            filled += 1
+            attrs = re.sub(r' t="[^"]*"', "", match["attrs"]) + stored[0]
+            return f'<c r="{match["ref"]}"{attrs}>{match["f"]}<v>{stored[1]}</v></c>'
+
+        entries[part] = _FORMULA_CELL.sub(fill, entries[part].decode()).encode()
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as out:
+        for name, data in entries.items():
+            out.writestr(name, data)
+    return filled
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Write the demo household's budget sheet"
@@ -682,7 +783,7 @@ def main():
     args = parser.parse_args()
     today = datetime.date.fromisoformat(args.today) if args.today else None
     build_demo_workbook(today, args.seed).save(args.out)
-    print(f"Wrote {args.out}")
+    print(f"Wrote {args.out} ({add_cached_values(args.out)} formula results stored)")
 
 
 if __name__ == "__main__":

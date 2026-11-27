@@ -660,9 +660,10 @@ def main():
     today = datetime.date.fromisoformat(args.today) if args.today else None
     wb = anonymize(args.source, today, args.seed)
     wb.save(args.out)
+    stored = dd.add_cached_values(args.out)
     found, suspects = leaks(args.source, wb), audit(wb)
     numbers = leaked_numbers(args.source, wb)
-    print(f"Wrote {args.out}")
+    print(f"Wrote {args.out} ({stored} formula results stored)")
     print(f"Strings from the real file still in the demo: {len(found)}")
     for item in found:
         print("  ", item)

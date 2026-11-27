@@ -1,5 +1,6 @@
 import datetime
 
+import openpyxl
 import pandas as pd
 import pytest
 
@@ -134,3 +135,27 @@ class TestDashboardReadsIt:
         }
         assert run_rate and not run_rate["estimated"]
         assert calc[dd.STOCKS_TAB]["K3"].value > 0
+
+
+@pytest.mark.skipif(not _has_calc(), reason="needs LibreOffice Calc")
+class TestStoredResults:
+    @pytest.fixture(scope="class")
+    def saved(self, tmp_path_factory):
+        path = tmp_path_factory.mktemp("stored") / "demo.xlsx"
+        dd.build_demo_workbook(TODAY, seed=7).save(path)
+        return path, dd.add_cached_values(str(path))
+
+    def test_formula_tabs_show_numbers_in_a_viewer_that_does_not_recalculate(
+        self, saved
+    ):
+        path, filled = saved
+        shown = openpyxl.load_workbook(path, data_only=True)
+        assert filled > 500
+        assert shown[bt.BUDGET]["C7"].value > 0
+        assert shown[bt.MONTHLY_EXPENSES]["B5"].value  # a category name from a formula
+        assert shown[bt.DASHBOARD]["A5"].value is not None
+
+    def test_the_formulas_are_still_there_for_google_sheets(self, saved):
+        path, _ = saved
+        formulas = openpyxl.load_workbook(path)
+        assert formulas[bt.BUDGET]["D5"].value == "=Income!D5+Income!I5"
